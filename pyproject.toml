@@ -1,0 +1,24 @@
+[build-system]
+requires = ["uv_build>=0.9.4,<0.10.0"]
+build-backend = "uv_build"
+
+[project]
+name = "tenzir-bench"
+version = "0.1.0"
+description = "Benchmark harness for Tenzir pipelines."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Tenzir Contributors", email = "engineering@tenzir.com" },
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/tenzir/tenzir"
+Source = "https://github.com/tenzir/bench"
+Issues = "https://github.com/tenzir/bench/issues"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

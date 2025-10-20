@@ -10,9 +10,11 @@ pkgs.mkShell {
     python
     uv
     ruff
+    basedpyright
   ];
 
   shellHook = ''
     export UV_NO_PROGRESS=1
+    export UV_PYTHON=${python.interpreter}
   '';
 }
