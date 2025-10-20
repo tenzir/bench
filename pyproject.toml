@@ -12,7 +12,12 @@ license = { text = "Apache-2.0" }
 authors = [
   { name = "Tenzir Contributors", email = "engineering@tenzir.com" },
 ]
-dependencies = []
+dependencies = [
+  "click>=8.1.7,<9",
+  "PyYAML>=6.0.1,<7",
+  "PyGithub>=2.1.1,<3",
+  "boto3>=1.34.0,<2",
+]
 
 [project.urls]
 Homepage = "https://github.com/tenzir/tenzir"
