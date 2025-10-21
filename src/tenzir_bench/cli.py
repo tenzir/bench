@@ -13,6 +13,7 @@ from .datasets import DatasetManager
 from .evaluation import evaluate as evaluate_results
 from .executor import BenchmarkExecutor
 from .paths import BenchPaths
+from .publisher import Publisher
 from .runners import RunnerRegistry
 from .syncer import sync as sync_results
 
@@ -89,14 +90,8 @@ def eval(paths: BenchPaths, runs: Optional[Path], base: Optional[Path], compact:
 def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bool) -> None:
     """Publish run reports to the remote store."""
     runs_dir = runs or paths.results_state_dir
-    logging.info("Publish is not implemented yet.")
-    logging.debug(
-        "runs=%s destination=%s force=%s results_state_dir=%s",
-        runs_dir,
-        destination,
-        force,
-        paths.results_state_dir,
-    )
+    publisher = Publisher()
+    publisher.publish(runs_dir, destination, force=force)
 
 
 @main.command()
