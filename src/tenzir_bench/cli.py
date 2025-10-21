@@ -10,9 +10,10 @@ from typing import Optional
 import click
 
 from .datasets import DatasetManager
+from .evaluation import evaluate as evaluate_results
 from .executor import BenchmarkExecutor
-from .runners import RunnerRegistry
 from .paths import BenchPaths
+from .runners import RunnerRegistry
 from .syncer import sync as sync_results
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
@@ -76,10 +77,7 @@ def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:
 def eval(paths: BenchPaths, runs: Optional[Path], base: Optional[Path], compact: bool) -> None:
     """Evaluate benchmark results against references."""
     runs_dir = runs or paths.results_state_dir
-    logging.info("Evaluation is not implemented yet.")
-    logging.debug(
-        "runs=%s base=%s compact=%s state_dir=%s", runs_dir, base, compact, paths.results_state_dir
-    )
+    evaluate_results(paths, runs_dir, base, compact)
 
 
 @main.command()
