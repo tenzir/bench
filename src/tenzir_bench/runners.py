@@ -45,7 +45,18 @@ class TimeRunner(Runner):
         try:
             full_cmd = [self.time_bin, "-f", fmt, "-o", metrics_path, *command]
             _LOG.debug("Executing: %s", full_cmd)
-            subprocess.run(full_cmd, check=True, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=timeout)
+            try:
+                subprocess.run(
+                    full_cmd,
+                    check=True,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.CalledProcessError as exc:
+                raise RuntimeError(exc.stderr.strip() or str(exc)) from exc
             metrics = _parse_time_metrics(metrics_path)
             return RunnerMetrics(
                 wall_clock=float(metrics["elapsed"]),

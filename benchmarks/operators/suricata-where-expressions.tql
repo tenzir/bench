@@ -16,7 +16,7 @@ benchmark:
     measurement_runs: 3
     timeout_seconds: 900
 ---
-from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+from_file f"{env("BENCHMARK_INPUT_PATH")}" {
   read_json
 }
 where event_type == "flow"

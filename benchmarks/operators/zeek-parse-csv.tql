@@ -34,7 +34,7 @@ let $header = [
   "resp_pkts",
   "community_id"
 ]
-from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+from_file f"{env("BENCHMARK_INPUT_PATH")}" {
   read_lines
 }
 slice begin=1

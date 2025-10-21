@@ -193,9 +193,12 @@ def _run_once(
     with tempfile.NamedTemporaryFile("w", suffix=".tql", delete=False) as tmp:
         tmp.write(definition.pipeline_body + "\n")
         pipeline_path = Path(tmp.name)
+    command = [str(tenzir_bin), "--file", str(pipeline_path)] + definition.tenzir_args
     try:
-        command = [str(tenzir_bin), "--file", str(pipeline_path)] + definition.tenzir_args
         metrics = runner.run(command, env=env, timeout=timeout)
+    except RuntimeError as exc:
+        _LOG.error("Runner failed for %s: %s", definition.id, exc)
+        return None
     finally:
         pipeline_path.unlink(missing_ok=True)
     if not store_result:
