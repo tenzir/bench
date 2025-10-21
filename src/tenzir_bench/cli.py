@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
 import click
 
 from .datasets import DatasetManager
+from .executor import BenchmarkExecutor
+from .runners import RunnerRegistry
 from .paths import BenchPaths
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
@@ -47,8 +50,11 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 @click.pass_obj
 def run(paths: BenchPaths, pattern: Optional[str], tenzir_bin: Optional[Path]) -> None:
     """Execute benchmarks and record reports."""
-    logging.info("Benchmark execution is not implemented yet.")
-    logging.debug("pattern=%s tenzir_bin=%s results_dir=%s", pattern, tenzir_bin, paths.results_state_dir)
+    tenzir = tenzir_bin or _resolve_tenzir()
+    registry = RunnerRegistry()
+    executor = BenchmarkExecutor(paths, tenzir, registry)
+    for context in executor.discover(pattern):
+        executor.execute(context)
 
 
 @main.command()
@@ -114,3 +120,10 @@ def compare(paths: BenchPaths, baseline: Path, candidate: Path, compact: bool) -
 
 if __name__ == "__main__":  # pragma: no cover
     main()
+
+
+def _resolve_tenzir() -> Path:
+    resolved = shutil.which("tenzir")
+    if not resolved:
+        raise click.ClickException("Unable to locate 'tenzir' executable; specify --tenzir-bin")
+    return Path(resolved).resolve()
