@@ -9,8 +9,8 @@ and operators across Tenzir releases.
 ### `bench prepare`
 
 Fetch the reference datasets (currently Suricata EVE JSON and Zeek conn logs),
-derive helper artifacts such as CSV and key-value views, and store everything
-under `data/`:
+derive helper artifacts such as CSV and key-value views, and store everything in
+the platform-specific cache directory (e.g. `~/.cache/tenzir-bench/datasets`):
 
 ```bash
 bench prepare
@@ -21,9 +21,9 @@ The command can be re-run; add `--force` to refresh downloads.
 ### `bench run`
 
 Execute the benchmark suite or an individual pipeline. The command discovers
-`.tql` files under `benchmarks/`, stages datasets from
-`data`, and records per-run JSON reports in
-`results/`.
+`.tql` files under `benchmarks/`, stages datasets from the cached dataset
+store, and records per-run JSON reports under the state directory (for example,
+`~/.local/state/tenzir-bench/results`).
 
 ```bash
 bench run
@@ -40,6 +40,14 @@ release versions of Tenzir.
 
 Syncs all results when the `--full` flag is given.
 
+Result artifacts are stored and synced using a deterministic layout derived from
+the benchmark definition hash, input hash, runner, and Tenzir build identifier.
+This keeps the local cache (`~/.cache/tenzir-bench/results`) aligned with the
+remote bucket structure and prevents redundant downloads.
+
+Metadata fetched from GitHub (release list and recent `main` commits) is cached
+for 30 minutes; pass `--refresh` to bypass the TTL and force an update.
+
 ### `bench eval`
 
 Compare the latest runs against a set of reference runs.
@@ -51,7 +59,7 @@ The compact output mode summarizes wall-clock time and peak RSS of the fastest
 run per pipeline.
 
 ```bash
-bench eval --base baseline/ --runs benchmark/results --compact
+bench eval --runs ~/.local/state/tenzir-bench/results --compact
 ```
 
 The optional `--base` option 
@@ -70,6 +78,9 @@ running `bench compare` against locally built binaries instead. Use `--strict`
 to make the command stop when references are missing or stale rather than
 falling back to partial output.
 
+> **Note:** GitHub API calls honor the `GITHUB_TOKEN` environment variable when
+> present but also work unauthenticated (subject to rate limits).
+
 ### `bench publish`
 
 Upload benchmark reports to the configured publication target (for example, an
@@ -77,11 +88,12 @@ object storage bucket). Publishing is idempotent: previously uploaded artifacts
 are skipped unless `--force` is specified.
 
 ```bash
-bench publish --runs benchmark/results --destination s3://tenzir-benchmarks/main
+bench publish --runs ~/.local/state/tenzir-bench/results --destination s3://tenzir-benchmarks/main
 ```
 
 Credentials, bucket names, retention policies, and other publishing details are
-managed via the project configuration (to be defined).
+managed via the built-in defaults; authentication relies on the standard AWS
+CLI configuration in the current environment.
 
 ### `bench compare`
 
@@ -122,9 +134,9 @@ benchmark:
   min_version: "5.17.0"              # Minimum Tenzir version allowed (optional)
   max_version: "6.0.0"               # Maximum Tenzir version allowed (optional)
   input:                             # Input dataset configuration (required)
-    path: suricata/eve.json          # Relative to $TENZIR_BENCHMARK_DATA unless absolute
-    events: 984865                    # Optional record count for throughput stats
-    measure: true                     # Use input bytes for throughput (boolean)
+    path: suricata/eve.json          # Relative to the managed dataset cache unless absolute
+    events: 984865                   # Optional record count for throughput stats
+    measure: true                    # Use input bytes for throughput (boolean)
   output:                            # Optional output measurement settings
     path: tmp/eve-out.json           # Relative to working directory
     measure: false                   # Measure output bytes (input measure must be false)
@@ -146,7 +158,7 @@ To add a new benchmark:
 1. Create `benchmark/benchmarks/<category>/<id>.tql` with the required
    frontmatter and pipeline.
 2. Run `bench run path/to/<id>.tql` to generate measurement reports.
-3. Validate results with `bench eval --base … --runs …`.
+3. Validate results with `bench eval`.
 
 Runners wrap the Tenzir invocation to collect metrics (e.g., `/usr/bin/time`
 for wall clock/CPU/RSS, `perf` for hardware counters, `cachegrind` for cache
@@ -158,16 +170,16 @@ when new changes land. A typical workflow:
 
 1. Enumerate the desired release binaries (for example, via Nix or container
    images).
-2. For each release, invoke `bench run --tenzir-bin <path>` and store the JSON
-   output under a dedicated baseline directory, e.g.
-   `baseline/<release>/<benchmark-id>/<timestamp>.json`.
-3. After all releases have been measured, aggregate the baseline directory into
-   versioned artifacts (tarball, JSON archive) and upload them with
-   `bench publish --runs baseline/<release> --destination …`.
+2. For each release, invoke `bench run --tenzir-bin <path>`. Reports are stored
+   automatically in the state directory following the canonical
+   `<benchmark-hash>/<input-hash>/<build-id>` layout.
+3. After all releases have been measured, publish the collected results with
+   `bench publish --runs ~/.local/state/tenzir-bench/results --destination …` or
+   archive the directory as needed.
 
 Automating the loop is encouraged: a simple script can iterate over release
-executables, set `TENZIR_BENCHMARK_DATA`, run the suite, and finally call
-`bench publish` once per release or for the entire batch. Downstream evaluators
+executables, run the suite, and finally call `bench publish` once per release or
+for the entire batch. Downstream evaluators
 can then diff a development build against any published baseline.
 
 Every published run should include metadata tying it back to the benchmark
