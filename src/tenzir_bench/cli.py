@@ -101,14 +101,33 @@ def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bo
 @click.pass_obj
 def compare(paths: BenchPaths, baseline: Path, candidate: Path, compact: bool) -> None:
     """Run benchmarks for two Tenzir builds and compare results."""
-    logging.info("Compare is not implemented yet.")
-    logging.debug(
-        "baseline=%s candidate=%s compact=%s results_dir=%s",
-        baseline,
-        candidate,
-        compact,
-        paths.results_state_dir,
-    )
+    registry = RunnerRegistry()
+    candidate_executor = BenchmarkExecutor(paths, candidate, registry)
+    contexts = list(candidate_executor.discover(pattern=None))
+    if not contexts:
+        logging.error("No benchmarks found to execute")
+        return
+    baseline_executor = BenchmarkExecutor(paths, baseline, registry)
+    compare_root = paths.results_state_dir / "compare"
+    baseline_dir = compare_root / "baseline"
+    candidate_dir = compare_root / "candidate"
+    shutil.rmtree(compare_root, ignore_errors=True)
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    candidate_dir.mkdir(parents=True, exist_ok=True)
+    baseline_reports = []
+    candidate_reports = []
+    for context in contexts:
+        baseline_reports.extend(baseline_executor.execute(context))
+        candidate_reports.extend(candidate_executor.execute(context))
+    for report in baseline_reports:
+        target = baseline_dir / report.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(report, target)
+    for report in candidate_reports:
+        target = candidate_dir / report.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(report, target)
+    evaluate_results(paths, candidate_dir, baseline_dir, compact)
 
 
 if __name__ == "__main__":  # pragma: no cover

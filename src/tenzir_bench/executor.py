@@ -67,6 +67,7 @@ class BenchmarkExecutor:
             / context.definition.runner
         )
         output_root.mkdir(parents=True, exist_ok=True)
+        results: list[Path] = []
         for warmup in range(context.definition.runtime.warmup_runs):
             _LOG.info("Warmup %s/%s for %s", warmup + 1, context.definition.runtime.warmup_runs, context.definition.id)
             _run_once(
@@ -88,7 +89,7 @@ class BenchmarkExecutor:
                 context.definition.runtime.measurement_runs,
                 context.definition.id,
             )
-            _run_once(
+            result = _run_once(
                 runner=runner,
                 definition=context.definition,
                 dataset=context.dataset_path,
@@ -100,6 +101,9 @@ class BenchmarkExecutor:
                 store_result=True,
                 run_index=run_index,
             )
+            if result:
+                results.append(result)
+        return results
 
 
 # ---------------------------------------------------------------------------
@@ -174,7 +178,7 @@ def _run_once(
     revision: Optional[str],
     store_result: bool,
     run_index: int,
-) -> None:
+) -> Optional[Path]:
     env = {"BENCHMARK_INPUT_PATH": str(dataset)}
     for key, value in definition.env.items():
         env[key] = value
@@ -195,7 +199,7 @@ def _run_once(
     finally:
         pipeline_path.unlink(missing_ok=True)
     if not store_result:
-        return
+        return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
     input_bytes = dataset.stat().st_size if definition.input_measure else output_bytes
     if input_bytes is None:
@@ -249,6 +253,7 @@ def _run_once(
     output_path = output_root / file_name
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
+    return output_path
 
 
 def _environment_snapshot() -> dict:
