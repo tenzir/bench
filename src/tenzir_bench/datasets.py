@@ -71,7 +71,7 @@ class DatasetManager:
 
     # ------------------------------------------------------------------
     def _specs(self) -> Iterable[DatasetSpec]:
-        root = Path("datasets")
+        root = Path()
         return (
             DatasetSpec(
                 name="suricata-eve",
