@@ -3,14 +3,17 @@
 }:
 
 let
-  python = pkgs.python313;
+  python = pkgs.python313.withPackages (ps : [
+    ps.uv
+    ps.uv-build
+  ]);
 in
 pkgs.mkShell {
-  packages = with pkgs; [
+  packages = [
     python
-    uv
-    ruff
-    basedpyright
+    pkgs.uv
+    pkgs.ruff
+    pkgs.basedpyright
   ];
 
   shellHook = ''
