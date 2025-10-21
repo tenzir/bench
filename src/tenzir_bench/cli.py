@@ -8,6 +8,7 @@ from typing import Optional
 
 import click
 
+from .datasets import DatasetManager
 from .paths import BenchPaths
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
@@ -36,8 +37,8 @@ def main(ctx: click.Context, log_level: str) -> None:
 @click.pass_obj
 def prepare(paths: BenchPaths, force: bool) -> None:
     """Download and prepare benchmark datasets."""
-    logging.info("Dataset preparation is not implemented yet.")
-    logging.debug("force=%s cache=%s", force, paths.datasets_cache_dir)
+    manager = DatasetManager(paths)
+    manager.prepare(force=force)
 
 
 @main.command()
