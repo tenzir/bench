@@ -13,6 +13,7 @@ from .datasets import DatasetManager
 from .executor import BenchmarkExecutor
 from .runners import RunnerRegistry
 from .paths import BenchPaths
+from .syncer import sync as sync_results
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
                "error": logging.ERROR, "critical": logging.CRITICAL}
@@ -62,9 +63,8 @@ def run(paths: BenchPaths, pattern: Optional[str], tenzir_bin: Optional[Path]) -
 @click.option("--refresh", is_flag=True, help="Ignore cached metadata TTL when syncing.")
 @click.pass_obj
 def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:
-    """Synchronise cached results and metadata from the central store."""
-    logging.info("Sync is not implemented yet.")
-    logging.debug("full=%s refresh=%s results_cache=%s", full, refresh, paths.results_cache_dir)
+    logging.info("Synchronising metadata and results")
+    sync_results(paths, full=full, refresh=refresh)
 
 
 @main.command()
