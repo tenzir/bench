@@ -78,8 +78,8 @@ def _print_compact_table(
     main_reports,
 ) -> None:
     header = (
-        f"{'pipeline':40} {'base(s)':>10} {'cand(s)':>10} {'Δbase(s)':>10}"
-        f" {'main(s)':>10} {'Δmain(s)':>10}"
+        f"{'pipeline':40} {'base(s)':>10} {'cand(s)':>10} {'Δbase(s)':>10} {'Δbase(%)':>10}"
+        f" {'main(s)':>10} {'Δmain(s)':>10} {'Δmain(%)':>10}"
     )
     print(header)
     print("-" * len(header))
@@ -90,9 +90,14 @@ def _print_compact_table(
         base_val = f"{base.wall_clock:.2f}" if base else "-"
         cand_val = f"{cand.wall_clock:.2f}" if cand else "-"
         delta_base = _format_delta(cand, base)
+        delta_base_pct = _format_percent(cand, base)
         main_val = f"{main.wall_clock:.2f}" if main else "-"
         delta_main = _format_delta(cand, main)
-        print(f"{pipeline:40} {base_val:>10} {cand_val:>10} {delta_base:>10} {main_val:>10} {delta_main:>10}")
+        delta_main_pct = _format_percent(cand, main)
+        print(
+            f"{pipeline:40} {base_val:>10} {cand_val:>10} {delta_base:>10} {delta_base_pct:>10}"
+            f" {main_val:>10} {delta_main:>10} {delta_main_pct:>10}"
+        )
 
 
 def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports) -> None:
@@ -105,10 +110,20 @@ def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports
             print(f"  Candidate: wall={cand.wall_clock:.2f}s rss={cand.rss_kb}k")
         if base:
             delta = _delta(cand, base)
-            print(f"  Baseline:  wall={base.wall_clock:.2f}s rss={base.rss_kb}k Δ={delta:+.2f}s")
+            pct = _percent_delta(cand, base)
+            rss_delta = _rss_delta(cand, base)
+            print(
+                f"  Baseline:  wall={base.wall_clock:.2f}s rss={base.rss_kb}k "
+                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k"
+            )
         if main:
             delta = _delta(cand, main)
-            print(f"  Main:      wall={main.wall_clock:.2f}s rss={main.rss_kb}k Δ={delta:+.2f}s")
+            pct = _percent_delta(cand, main)
+            rss_delta = _rss_delta(cand, main)
+            print(
+                f"  Main:      wall={main.wall_clock:.2f}s rss={main.rss_kb}k "
+                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k"
+            )
         print()
 
 
@@ -124,3 +139,23 @@ def _delta(candidate, reference) -> float:
     if not candidate or not reference:
         return 0.0
     return candidate.wall_clock - reference.wall_clock
+
+
+def _percent_delta(candidate, reference) -> Optional[float]:
+    if not candidate or not reference or reference.wall_clock == 0:
+        return None
+    return ((candidate.wall_clock - reference.wall_clock) / reference.wall_clock) * 100.0
+
+
+def _format_percent(candidate, reference) -> str:
+    pct = _percent_delta(candidate, reference)
+    if pct is None:
+        return "-"
+    sign = "+" if pct > 0 else ""
+    return f"{sign}{pct:.1f}"
+
+
+def _rss_delta(candidate, reference) -> int:
+    if not candidate or not reference:
+        return 0
+    return (candidate.rss_kb or 0) - (reference.rss_kb or 0)
