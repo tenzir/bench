@@ -64,7 +64,7 @@ class DatasetManager:
         try:
             with urllib.request.urlopen(url) as response, temp_path.open("wb") as handle:  # type: ignore[arg-type]
                 shutil.copyfileobj(response, handle)
-            temp_path.replace(destination)
+            shutil.move(str(temp_path), destination)
         finally:
             if temp_path.exists():
                 temp_path.unlink()
