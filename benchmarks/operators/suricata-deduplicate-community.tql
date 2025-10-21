@@ -1,0 +1,23 @@
+---
+benchmark:
+  id: suricata-deduplicate-community
+  description: Deduplicate Suricata events by community_id
+  tags:
+    dataset: suricata-eve
+    operator: deduplicate
+  input:
+    path: suricata/eve.json
+    events: 984865
+    measure: true
+  env:
+    TENZIR_CONSOLE_FORMAT: none
+  runtime:
+    warmup_runs: 1
+    measurement_runs: 3
+    timeout_seconds: 900
+---
+from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+  read_json
+}
+deduplicate community_id, limit=500000
+discard

@@ -1,0 +1,26 @@
+---
+benchmark:
+  id: suricata-where-expressions
+  description: Filter Suricata events with layered where expressions
+  tags:
+    dataset: suricata-eve
+    operator: where
+  input:
+    path: suricata/eve.json
+    events: 984865
+    measure: true
+  env:
+    TENZIR_CONSOLE_FORMAT: none
+  runtime:
+    warmup_runs: 1
+    measurement_runs: 3
+    timeout_seconds: 900
+---
+from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+  read_json
+}
+where event_type == "flow"
+where flow.bytes_toserver > 200
+where flow.bytes_toclient >= flow.bytes_toserver
+where src_ip != dest_ip
+discard

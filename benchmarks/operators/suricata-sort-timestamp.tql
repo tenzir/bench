@@ -1,0 +1,23 @@
+---
+benchmark:
+  id: suricata-sort-timestamp
+  description: Sort Suricata events by timestamp
+  tags:
+    dataset: suricata-eve
+    operator: sort
+  input:
+    path: suricata/eve.json
+    events: 984865
+    measure: true
+  env:
+    TENZIR_CONSOLE_FORMAT: none
+  runtime:
+    warmup_runs: 1
+    measurement_runs: 3
+    timeout_seconds: 900
+---
+from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+  read_json
+}
+sort timestamp
+discard

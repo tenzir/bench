@@ -1,0 +1,42 @@
+---
+benchmark:
+  id: zeek-parse-csv
+  description: Parse Zeek conn CSV rows manually
+  tags:
+    dataset: zeek-conn
+    operator: parse_csv
+  input:
+    path: zeek/conn.csv
+    events: 583838
+    measure: true
+  env:
+    TENZIR_CONSOLE_FORMAT: none
+  runtime:
+    warmup_runs: 1
+    measurement_runs: 3
+    timeout_seconds: 900
+---
+let $header = [
+  "ts",
+  "uid",
+  "id.orig_h",
+  "id.orig_p",
+  "id.resp_h",
+  "id.resp_p",
+  "proto",
+  "service",
+  "duration",
+  "orig_bytes",
+  "resp_bytes",
+  "conn_state",
+  "history",
+  "orig_pkts",
+  "resp_pkts",
+  "community_id"
+]
+from_file f"{env('BENCHMARK_INPUT_PATH')}" {
+  read_lines
+}
+slice begin=1
+this = move line.parse_csv(header=$header)
+discard

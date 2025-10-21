@@ -11,7 +11,7 @@ import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Union
 
 from .paths import BenchPaths
 
@@ -21,7 +21,7 @@ _LOG = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class DatasetSpec:
     name: str
-    url: str
+    url: Union[str, Path]
     download: Path
     final: Path
     post: Optional[Callable[[Path, Path, BenchPaths, bool], None]] = None
@@ -51,14 +51,18 @@ class DatasetManager:
             if force or not final_path.exists():
                 shutil.copy2(download_path, final_path)
 
-    def _download(self, url: str, destination: Path, force: bool) -> None:
+    def _download(self, url: Union[str, Path], destination: Path, force: bool) -> None:
         _ensure_parent(destination)
         if destination.exists() and not force:
+            return
+        if isinstance(url, Path) or (isinstance(url, str) and url.startswith("file://")):
+            source = Path(url[7:]) if isinstance(url, str) else url
+            shutil.copy2(source, destination)
             return
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
-            with urllib.request.urlopen(url) as response, temp_path.open("wb") as handle:
+            with urllib.request.urlopen(url) as response, temp_path.open("wb") as handle:  # type: ignore[arg-type]
                 shutil.copyfileobj(response, handle)
             temp_path.replace(destination)
         finally:
