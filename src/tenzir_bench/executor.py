@@ -34,6 +34,7 @@ class BenchmarkExecutor:
         self.paths = paths
         self.tenzir_bin = tenzir_bin
         self.runners = runner_registry
+        self._build_info: Optional[BuildInfo] = None
 
     def discover(self, pattern: Optional[str]) -> Iterable[BenchmarkContext]:
         files = _discover_files(pattern)
@@ -43,29 +44,27 @@ class BenchmarkExecutor:
             except BenchmarkError as exc:
                 _LOG.error("Skipping %s: %s", file, exc)
                 continue
-            dataset = (self.paths.datasets_cache_dir / definition.input_path).resolve()
-            if not dataset.exists():
-                _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
-                continue
-            context = BenchmarkContext(
-                definition=definition,
-                dataset_path=dataset,
-                benchmark_hash=hash_benchmark(definition),
-                input_hash=hash_file(dataset),
-            )
-            yield context
+            context = self.create_context(definition)
+            if context:
+                yield context
+
+    def create_context(self, definition: BenchmarkDefinition) -> Optional[BenchmarkContext]:
+        dataset = (self.paths.datasets_cache_dir / definition.input_path).resolve()
+        if not dataset.exists():
+            _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
+            return None
+        return BenchmarkContext(
+            definition=definition,
+            dataset_path=dataset,
+            benchmark_hash=hash_benchmark(definition),
+            input_hash=hash_file(dataset),
+        )
 
     def execute(self, context: BenchmarkContext) -> None:
         runner = self.runners.get(context.definition.runner)
-        build = _detect_build(self.tenzir_bin)
+        build = self._get_build_info()
         revision = _git_revision()
-        output_root = (
-            self.paths.results_state_dir
-            / context.benchmark_hash
-            / context.input_hash
-            / build.build_id
-            / context.definition.runner
-        )
+        output_root = self._result_dir(context, build)
         output_root.mkdir(parents=True, exist_ok=True)
         results: list[Path] = []
         for warmup in range(context.definition.runtime.warmup_runs):
@@ -104,6 +103,20 @@ class BenchmarkExecutor:
             if result:
                 results.append(result)
         return results
+
+    def _result_dir(self, context: BenchmarkContext, build: BuildInfo) -> Path:
+        return (
+            self.paths.results_state_dir
+            / context.benchmark_hash
+            / context.input_hash
+            / build.build_id
+            / context.definition.runner
+        )
+
+    def _get_build_info(self) -> BuildInfo:
+        if self._build_info is None:
+            self._build_info = _detect_build(self.tenzir_bin)
+        return self._build_info
 
 
 # ---------------------------------------------------------------------------

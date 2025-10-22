@@ -95,15 +95,45 @@ def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bo
     publisher.publish(runs_dir, destination, force=force)
 
 
-@main.command()
-@click.argument("binaries", nargs=-1, type=str)
-@click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
+@main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
+@click.argument("args", nargs=-1)
 @click.pass_obj
-def compare(paths: BenchPaths, binaries: Sequence[str], compact: bool, pattern: Optional[str]) -> None:
-    """Compare multiple Tenzir builds (baseline first)."""
+def compare(paths: BenchPaths, compact: bool, args: Sequence[str]) -> None:
+    """Compare multiple Tenzir builds using benchmarks under given directories."""
+    entries: list[tuple[str, bool]] = []
+    benchmark_dirs: list[Path] = []
+    force_next = False
+    base: Optional[str] = None
+    base_force = False
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "--run":
+            force_next = True
+        elif token == "--base":
+            i += 1
+            if i >= len(args):
+                raise click.BadParameter("--base requires a path")
+            base = args[i]
+            base_force = force_next
+            force_next = False
+        elif token == "--candidate":
+            i += 1
+            if i >= len(args):
+                raise click.BadParameter("--candidate requires a path")
+            entries.append((args[i], force_next))
+            force_next = False
+        else:
+            benchmark_dirs.append(Path(token))
+        i += 1
+    if base is None:
+        raise click.BadParameter("at least one --base must be specified")
+    if not entries:
+        raise click.BadParameter("at least one --candidate must be specified")
+    binaries = [(base, base_force)] + entries
     resolved = resolve_binaries(binaries)
-    run_compare(paths, resolved, compact, pattern)
+    run_compare(paths, resolved, compact, benchmark_dirs)
 
 
 if __name__ == "__main__":  # pragma: no cover

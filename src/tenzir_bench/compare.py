@@ -7,23 +7,21 @@ import shutil
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
+from .definitions import BenchmarkError, parse_benchmark_file
 from .evaluation import evaluate as evaluate_results
 from .executor import BenchmarkExecutor
 from .paths import BenchPaths
 from .runners import RunnerRegistry
 from .reports import load_reports, select_fastest
+from .definitions import parse_benchmark_file, BenchmarkError
 
 _LOG = logging.getLogger(__name__)
 
 
-def resolve_binaries(paths: Sequence[str]) -> List[Tuple[Path, bool]]:
+def resolve_binaries(entries: Sequence[Tuple[str, bool]]) -> List[Tuple[Path, bool]]:
     resolved: List[Tuple[Path, bool]] = []
-    force = False
-    for item in paths:
-        if item == "--run":
-            force = True
-            continue
-        path = Path(item)
+    for value, force in entries:
+        path = Path(value)
         if path.is_dir():
             candidate = path / "bin" / "tenzir"
         else:
@@ -31,7 +29,6 @@ def resolve_binaries(paths: Sequence[str]) -> List[Tuple[Path, bool]]:
         if not candidate.exists():
             raise FileNotFoundError(f"No tenzir executable at {candidate}")
         resolved.append((candidate.resolve(), force))
-        force = False
     if len(resolved) < 2:
         raise ValueError("compare requires at least two binaries")
     return resolved
@@ -41,12 +38,12 @@ def run_compare(
     paths: BenchPaths,
     binaries: List[Tuple[Path, bool]],
     compact: bool,
-    pattern: Optional[str] = None,
+    benchmark_dirs: Sequence[Path],
 ) -> None:
     registry = RunnerRegistry()
     baseline_bin, baseline_force = binaries[0]
     baseline_executor = BenchmarkExecutor(paths, baseline_bin, registry)
-    contexts = list(baseline_executor.discover(pattern))
+    contexts = list(_discover_from_dirs(baseline_executor, benchmark_dirs))
     if not contexts:
         _LOG.error("No benchmarks found to execute")
         return
@@ -77,13 +74,23 @@ def _ensure_reports(
     output_dir: Path,
     force: bool,
 ) -> Path:
+    build = executor._get_build_info()  # type: ignore[attr-defined]
     if not force:
-        existing = select_fastest(load_reports(output_dir)) if output_dir.exists() else {}
-        if existing:
+        if output_dir.exists() and any(output_dir.rglob("*.json")):
             _LOG.info("Reusing cached reports in %s", output_dir)
             return output_dir
-        cache_dir = executor.paths.results_cache_dir
-        cache_reports = select_fastest(load_reports(cache_dir / executor.tenzir_bin.name if cache_dir else cache_dir))
+        collected: List[Path] = []
+        for context in contexts:
+            run_dir = executor._result_dir(context, build)  # type: ignore[attr-defined]
+            collected.extend(run_dir.glob("*.json"))
+        if collected:
+            _LOG.info("Reusing cached reports from state cache for %s", executor.tenzir_bin)
+            shutil.rmtree(output_dir, ignore_errors=True)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            for report in collected:
+                target = output_dir / report.name
+                shutil.copy2(report, target)
+            return output_dir
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     reports_generated = []
@@ -98,3 +105,30 @@ def _ensure_reports(
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(report, target)
     return output_dir
+
+
+def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> Iterable:
+    if not dirs:
+        yield from executor.discover(pattern=None)
+        return
+    seen = set()
+    for directory in dirs:
+        if directory.is_file() and directory.suffix == ".tql":
+            candidates = [directory]
+        elif directory.is_dir():
+            candidates = directory.rglob("*.tql")
+        else:
+            _LOG.warning("Benchmark path %s does not exist", directory)
+            continue
+        for file in candidates:
+            if file in seen:
+                continue
+            seen.add(file)
+            try:
+                definition = parse_benchmark_file(file)
+            except BenchmarkError as exc:
+                _LOG.error("Skipping %s: %s", file, exc)
+                continue
+            context = executor.create_context(definition)
+            if context:
+                yield context
