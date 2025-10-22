@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import click
 
@@ -57,8 +57,11 @@ def run(paths: BenchPaths, pattern: Optional[str], tenzir_bin: Optional[Path]) -
     tenzir = tenzir_bin or _resolve_tenzir()
     registry = RunnerRegistry()
     executor = BenchmarkExecutor(paths, tenzir, registry)
-    for context in executor.discover(pattern):
-        executor.execute(context)
+    contexts = list(executor.discover(pattern))
+    if contexts:
+        executor.prepare_progress(contexts)
+        for context in contexts:
+            executor.execute(context)
 
 
 @main.command()
@@ -97,32 +100,39 @@ def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bo
 
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
-@click.argument("args", nargs=-1)
+@click.argument("arguments", nargs=-1, metavar="PATH")
 @click.pass_obj
-def compare(paths: BenchPaths, compact: bool, args: Sequence[str]) -> None:
-    """Compare multiple Tenzir builds using benchmarks under given directories."""
+def compare(bench_paths: BenchPaths, compact: bool, arguments: Sequence[str]) -> None:
+    """Compare multiple Tenzir builds by running benchmarks in PATH.
+
+    \b
+    The following markers can be interspersed with PATH values:
+      --base PATH        baseline build (required)
+      --candidate PATH   candidate build (repeatable)
+      --run              force executing the next --base/--candidate path
+    """
     entries: list[tuple[str, bool]] = []
     benchmark_dirs: list[Path] = []
     force_next = False
     base: Optional[str] = None
     base_force = False
     i = 0
-    while i < len(args):
-        token = args[i]
+    while i < len(arguments):
+        token = arguments[i]
         if token == "--run":
             force_next = True
         elif token == "--base":
             i += 1
-            if i >= len(args):
+            if i >= len(arguments):
                 raise click.BadParameter("--base requires a path")
-            base = args[i]
+            base = arguments[i]
             base_force = force_next
             force_next = False
         elif token == "--candidate":
             i += 1
-            if i >= len(args):
+            if i >= len(arguments):
                 raise click.BadParameter("--candidate requires a path")
-            entries.append((args[i], force_next))
+            entries.append((arguments[i], force_next))
             force_next = False
         else:
             benchmark_dirs.append(Path(token))
@@ -133,7 +143,7 @@ def compare(paths: BenchPaths, compact: bool, args: Sequence[str]) -> None:
         raise click.BadParameter("at least one --candidate must be specified")
     binaries = [(base, base_force)] + entries
     resolved = resolve_binaries(binaries)
-    run_compare(paths, resolved, compact, benchmark_dirs)
+    run_compare(bench_paths, resolved, compact, benchmark_dirs)
 
 
 if __name__ == "__main__":  # pragma: no cover

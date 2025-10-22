@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable, List, Optional, Sequence
 
 from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
 from .hashing import hash_benchmark, hash_file
@@ -35,6 +35,9 @@ class BenchmarkExecutor:
         self.tenzir_bin = tenzir_bin
         self.runners = runner_registry
         self._build_info: Optional[BuildInfo] = None
+        self._progress_total: int = 0
+        self._progress_current: int = 0
+        self._progress_planned: bool = False
 
     def discover(self, pattern: Optional[str]) -> Iterable[BenchmarkContext]:
         files = _discover_files(pattern)
@@ -60,6 +63,16 @@ class BenchmarkExecutor:
             input_hash=hash_file(dataset),
         )
 
+    def prepare_progress(self, contexts: Sequence[BenchmarkContext]) -> None:
+        total = sum(
+            context.definition.runtime.warmup_runs
+            + context.definition.runtime.measurement_runs
+            for context in contexts
+        )
+        self._progress_total = total
+        self._progress_current = 0
+        self._progress_planned = total > 0
+
     def execute(self, context: BenchmarkContext) -> None:
         runner = self.runners.get(context.definition.runner)
         build = self._get_build_info()
@@ -67,8 +80,21 @@ class BenchmarkExecutor:
         output_root = self._result_dir(context, build)
         output_root.mkdir(parents=True, exist_ok=True)
         results: list[Path] = []
+        total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
+        dynamic_progress = False
+        if not self._progress_planned:
+            self._progress_total = total_runs
+            self._progress_current = 0
+            dynamic_progress = True
         for warmup in range(context.definition.runtime.warmup_runs):
-            _LOG.info("Warmup %s/%s for %s", warmup + 1, context.definition.runtime.warmup_runs, context.definition.id)
+            prefix = self._progress_prefix()
+            _LOG.info(
+                "%s Warmup %s/%s for %s",
+                prefix,
+                warmup + 1,
+                context.definition.runtime.warmup_runs,
+                context.definition.id,
+            )
             _run_once(
                 runner=runner,
                 definition=context.definition,
@@ -82,8 +108,10 @@ class BenchmarkExecutor:
                 run_index=-1,
             )
         for run_index in range(context.definition.runtime.measurement_runs):
+            prefix = self._progress_prefix()
             _LOG.info(
-                "Measurement %s/%s for %s",
+                "%s Measurement %s/%s for %s",
+                prefix,
                 run_index + 1,
                 context.definition.runtime.measurement_runs,
                 context.definition.id,
@@ -102,7 +130,21 @@ class BenchmarkExecutor:
             )
             if result:
                 results.append(result)
+        if self._progress_planned and self._progress_current >= self._progress_total:
+            self._progress_planned = False
+            self._progress_total = 0
+            self._progress_current = 0
+        elif dynamic_progress:
+            self._progress_total = 0
+            self._progress_current = 0
         return results
+
+    def _progress_prefix(self) -> str:
+        if self._progress_total <= 0:
+            return ""
+        self._progress_current += 1
+        width = len(str(self._progress_total))
+        return f"[{self._progress_current:>{width}}/{self._progress_total}]"
 
     def _result_dir(self, context: BenchmarkContext, build: BuildInfo) -> Path:
         return (
