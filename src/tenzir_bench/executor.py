@@ -139,7 +139,7 @@ def _discover_files(pattern: Optional[str]) -> List[Path]:
 def _detect_build(tenzir_bin: Path) -> BuildInfo:
     try:
         proc = subprocess.run(
-            [str(tenzir_bin), "--version"],
+            [str(tenzir_bin), "version | select version, build_type=build.type | write_ndjson"],
             check=True,
             capture_output=True,
             text=True,
@@ -148,14 +148,9 @@ def _detect_build(tenzir_bin: Path) -> BuildInfo:
         _LOG.warning("Failed to detect build metadata: %s", exc)
         return BuildInfo(version=None, build_type=None, path=str(tenzir_bin))
     line = proc.stdout.strip().splitlines()[0] if proc.stdout else ""
-    version = None
-    build_type = None
-    if line:
-        parts = line.split()
-        if len(parts) >= 2:
-            version = parts[1]
-        if "(" in line and ")" in line:
-            build_type = line.split("(", 1)[1].split(")", 1)[0]
+    data: dict[str, str] = json.loads(line)
+    version = data["version"] if "version" in data else None
+    build_type = data["build_type"] if "build_type" in data else None
     return BuildInfo(version=version, build_type=build_type, path=str(tenzir_bin.resolve()))
 
 
