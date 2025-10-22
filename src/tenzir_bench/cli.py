@@ -97,12 +97,13 @@ def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bo
 
 @main.command()
 @click.argument("binaries", nargs=-1, type=str)
+@click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
 @click.pass_obj
-def compare(paths: BenchPaths, binaries: Sequence[str], compact: bool) -> None:
+def compare(paths: BenchPaths, binaries: Sequence[str], compact: bool, pattern: Optional[str]) -> None:
     """Compare multiple Tenzir builds (baseline first)."""
     resolved = resolve_binaries(binaries)
-    run_compare(paths, resolved, compact)
+    run_compare(paths, resolved, compact, pattern)
 
 
 if __name__ == "__main__":  # pragma: no cover

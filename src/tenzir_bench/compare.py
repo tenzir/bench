@@ -37,11 +37,16 @@ def resolve_binaries(paths: Sequence[str]) -> List[Tuple[Path, bool]]:
     return resolved
 
 
-def run_compare(paths: BenchPaths, binaries: List[Tuple[Path, bool]], compact: bool) -> None:
+def run_compare(
+    paths: BenchPaths,
+    binaries: List[Tuple[Path, bool]],
+    compact: bool,
+    pattern: Optional[str] = None,
+) -> None:
     registry = RunnerRegistry()
     baseline_bin, baseline_force = binaries[0]
     baseline_executor = BenchmarkExecutor(paths, baseline_bin, registry)
-    contexts = list(baseline_executor.discover(pattern=None))
+    contexts = list(baseline_executor.discover(pattern))
     if not contexts:
         _LOG.error("No benchmarks found to execute")
         return
