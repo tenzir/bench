@@ -72,10 +72,13 @@ def _ensure_reports(
     output_dir: Path,
     force: bool,
 ) -> Path:
-    existing = select_fastest(load_reports(output_dir)) if output_dir.exists() else {}
-    if existing and not force:
-        _LOG.info("Reusing cached reports in %s", output_dir)
-        return output_dir
+    if not force:
+        existing = select_fastest(load_reports(output_dir)) if output_dir.exists() else {}
+        if existing:
+            _LOG.info("Reusing cached reports in %s", output_dir)
+            return output_dir
+        cache_dir = executor.paths.results_cache_dir
+        cache_reports = select_fastest(load_reports(cache_dir / executor.tenzir_bin.name if cache_dir else cache_dir))
     shutil.rmtree(output_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     reports_generated = []
