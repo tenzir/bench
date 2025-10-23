@@ -6,9 +6,9 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from github import Github
 
@@ -23,7 +23,7 @@ class MetadataCache:
     path: Path
     ttl_seconds: int = DEFAULT_TTL_SECONDS
 
-    def load(self, refresh: bool = False) -> Dict[str, Any] | None:
+    def load(self, refresh: bool = False) -> dict[str, Any] | None:
         if not self.path.exists() or refresh:
             return None
         try:
@@ -34,14 +34,14 @@ class MetadataCache:
         if not timestamp:
             return None
         fetched_at = datetime.fromisoformat(timestamp)
-        if datetime.now(timezone.utc) - fetched_at > timedelta(seconds=self.ttl_seconds):
+        if datetime.now(UTC) - fetched_at > timedelta(seconds=self.ttl_seconds):
             return None
         return payload.get("data")
 
     def save(self, data: Any) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "fetched_at": datetime.now(UTC).isoformat(),
             "data": data,
         }
         self.path.write_text(json.dumps(payload), encoding="utf-8")
@@ -55,7 +55,7 @@ class GitHubMetadata:
         self.releases_cache = MetadataCache(cache_dir / "github_releases.json", ttl_seconds)
         self.main_cache = MetadataCache(cache_dir / "github_main.json", ttl_seconds)
 
-    def fetch_releases(self, refresh: bool = False, limit: int = 20) -> List[Dict[str, Any]]:
+    def fetch_releases(self, refresh: bool = False, limit: int = 20) -> list[dict[str, Any]]:
         cached = self.releases_cache.load(refresh=refresh)
         if cached is not None:
             return cached
@@ -70,12 +70,12 @@ class GitHubMetadata:
                     "tag": release.tag_name,
                     "published_at": release.published_at.isoformat() if release.published_at else None,
                     "target": release.target_commitish,
-                }
+                },
             )
         self.releases_cache.save(releases)
         return releases
 
-    def fetch_main_commits(self, refresh: bool = False, limit: int = 20) -> List[Dict[str, Any]]:
+    def fetch_main_commits(self, refresh: bool = False, limit: int = 20) -> list[dict[str, Any]]:
         cached = self.main_cache.load(refresh=refresh)
         if cached is not None:
             return cached
@@ -89,7 +89,7 @@ class GitHubMetadata:
                 {
                     "sha": commit.sha,
                     "date": commit.commit.author.date.isoformat() if commit.commit.author and commit.commit.author.date else None,
-                }
+                },
             )
         self.main_cache.save(commits)
         return commits

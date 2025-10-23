@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Tuple
 from urllib.parse import urlparse
 
 import boto3
@@ -41,7 +41,7 @@ class Publisher:
             raise
 
 
-def _parse_destination(destination: str, default_bucket: str) -> Tuple[str, Path]:
+def _parse_destination(destination: str, default_bucket: str) -> tuple[str, Path]:
     parsed = urlparse(destination)
     if parsed.scheme == "s3":
         bucket = parsed.netloc or default_bucket

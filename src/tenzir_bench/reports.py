@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
 
 
 @dataclass
@@ -14,11 +13,11 @@ class Report:
     pipeline: str
     wall_clock: float
     rss_kb: int
-    build_version: Optional[str]
+    build_version: str | None
 
 
-def load_reports(directory: Path, version_filter: Optional[str] = None) -> Dict[str, List[Report]]:
-    results: Dict[str, List[Report]] = {}
+def load_reports(directory: Path, version_filter: str | None = None) -> dict[str, list[Report]]:
+    results: dict[str, list[Report]] = {}
     if not directory.exists():
         return results
     for file in directory.rglob("*.json"):
@@ -49,8 +48,8 @@ def load_reports(directory: Path, version_filter: Optional[str] = None) -> Dict[
     return results
 
 
-def select_fastest(reports: Dict[str, List[Report]]) -> Dict[str, Report]:
-    fastest: Dict[str, Report] = {}
+def select_fastest(reports: dict[str, list[Report]]) -> dict[str, Report]:
+    fastest: dict[str, Report] = {}
     for pipeline, items in reports.items():
         if not items:
             continue
@@ -58,7 +57,7 @@ def select_fastest(reports: Dict[str, List[Report]]) -> Dict[str, Report]:
     return fastest
 
 
-def _trim_prefix(version: Optional[str]) -> Optional[str]:
+def _trim_prefix(version: str | None) -> str | None:
     if version and version.startswith("v"):
         return version[1:]
     return version

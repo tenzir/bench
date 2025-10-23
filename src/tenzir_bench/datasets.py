@@ -9,9 +9,9 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional, Union
 
 from .paths import BenchPaths
 
@@ -21,10 +21,10 @@ _LOG = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class DatasetSpec:
     name: str
-    url: Union[str, Path]
+    url: str | Path
     download: Path
     final: Path
-    post: Optional[Callable[[Path, Path, BenchPaths, bool], None]] = None
+    post: Callable[[Path, Path, BenchPaths, bool], None] | None = None
 
 
 class DatasetManager:
@@ -51,7 +51,7 @@ class DatasetManager:
             if force or not final_path.exists():
                 shutil.copy2(download_path, final_path)
 
-    def _download(self, url: Union[str, Path], destination: Path, force: bool) -> None:
+    def _download(self, url: str | Path, destination: Path, force: bool) -> None:
         _ensure_parent(destination)
         if destination.exists() and not force:
             return
@@ -143,7 +143,7 @@ def _extract_conn_log(source: Path, destination: Path) -> None:
     meta_lines = []
     writing = False
     with source.open("r", encoding="utf-8", errors="ignore") as handle, destination.open(
-        "w", encoding="utf-8"
+        "w", encoding="utf-8",
     ) as out:
         for line in handle:
             if line.startswith("#"):
@@ -207,7 +207,7 @@ def _convert_conn_to_csv(conn_log: Path, csv_path: Path, kv_path: Path) -> None:
             values = line.split("\t")
             selected = [values[i] if i < len(values) else "" for i in indices]
             writer.writerow(selected)
-            kv_pairs = [f"{key}={value}" for key, value in zip(headers, selected) if value and value != "-"]
+            kv_pairs = [f"{key}={value}" for key, value in zip(headers, selected, strict=False) if value and value != "-"]
             if kv_pairs:
                 kv_file.write(" ".join(kv_pairs) + "\n")
 

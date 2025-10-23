@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pathlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 import yaml
 
@@ -17,24 +16,24 @@ class BenchmarkError(Exception):
 class BenchmarkRuntime:
     warmup_runs: int = 0
     measurement_runs: int = 1
-    timeout_seconds: Optional[int] = None
+    timeout_seconds: int | None = None
 
 
 @dataclass(frozen=True)
 class BenchmarkDefinition:
     path: pathlib.Path
     id: str
-    description: Optional[str]
-    tags: Dict[str, str]
-    min_version: Optional[str]
-    max_version: Optional[str]
+    description: str | None
+    tags: dict[str, str]
+    min_version: str | None
+    max_version: str | None
     input_path: str
-    input_events: Optional[int]
+    input_events: int | None
     input_measure: bool
-    output_path: Optional[str]
+    output_path: str | None
     output_measure: bool
-    env: Dict[str, str]
-    tenzir_args: List[str]
+    env: dict[str, str]
+    tenzir_args: list[str]
     runner: str
     runtime: BenchmarkRuntime
     pipeline_body: str
@@ -72,7 +71,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         raise BenchmarkError(f"{path}: benchmark.input.events must be an integer")
     input_measure = bool(input_section.get("measure", True))
     output_section = benchmark.get("output")
-    output_path: Optional[str] = None
+    output_path: str | None = None
     output_measure = False
     if output_section is not None:
         if not isinstance(output_section, dict):
@@ -137,7 +136,7 @@ def _split_frontmatter(text: str, path: pathlib.Path) -> tuple[str, str]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise BenchmarkError(
-            f"{path}: benchmark file must start with YAML frontmatter delimited by '---'"
+            f"{path}: benchmark file must start with YAML frontmatter delimited by '---'",
         )
     for idx in range(1, len(lines)):
         if lines[idx].strip() == "---":

@@ -6,9 +6,9 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Mapping, Sequence
 
 _LOG = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ class TimeRunner(Runner):
 
 class RunnerRegistry:
     def __init__(self, runners: Iterable[Runner] | None = None) -> None:
-        self._runners: Dict[str, Runner] = {}
+        self._runners: dict[str, Runner] = {}
         if runners:
             for runner in runners:
                 self.register(runner)
@@ -86,9 +86,9 @@ class RunnerRegistry:
         return self._runners[name]
 
 
-def _parse_time_metrics(path: str) -> Dict[str, str]:
-    metrics: Dict[str, str] = {}
-    with open(path, "r", encoding="utf-8") as handle:
+def _parse_time_metrics(path: str) -> dict[str, str]:
+    metrics: dict[str, str] = {}
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             if "=" not in line:
                 continue

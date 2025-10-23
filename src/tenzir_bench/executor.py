@@ -8,10 +8,10 @@ import os
 import socket
 import subprocess
 import tempfile
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
 
 from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
 from .hashing import hash_benchmark, hash_file
@@ -34,12 +34,12 @@ class BenchmarkExecutor:
         self.paths = paths
         self.tenzir_bin = tenzir_bin
         self.runners = runner_registry
-        self._build_info: Optional[BuildInfo] = None
+        self._build_info: BuildInfo | None = None
         self._progress_total: int = 0
         self._progress_current: int = 0
         self._progress_planned: bool = False
 
-    def discover(self, pattern: Optional[str]) -> Iterable[BenchmarkContext]:
+    def discover(self, pattern: str | None) -> Iterable[BenchmarkContext]:
         files = _discover_files(pattern)
         for file in files:
             try:
@@ -51,7 +51,7 @@ class BenchmarkExecutor:
             if context:
                 yield context
 
-    def create_context(self, definition: BenchmarkDefinition) -> Optional[BenchmarkContext]:
+    def create_context(self, definition: BenchmarkDefinition) -> BenchmarkContext | None:
         dataset = (self.paths.datasets_cache_dir / definition.input_path).resolve()
         if not dataset.exists():
             _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
@@ -166,8 +166,8 @@ class BenchmarkExecutor:
 
 @dataclass
 class BuildInfo:
-    version: Optional[str]
-    build_type: Optional[str]
+    version: str | None
+    build_type: str | None
     path: str
 
     @property
@@ -175,7 +175,7 @@ class BuildInfo:
         return self.version or "unknown"
 
 
-def _discover_files(pattern: Optional[str]) -> List[Path]:
+def _discover_files(pattern: str | None) -> list[Path]:
     root = Path("benchmarks")
     if pattern:
         candidate = Path(pattern)
@@ -209,7 +209,7 @@ def _detect_build(tenzir_bin: Path) -> BuildInfo:
     return BuildInfo(version=version, build_type=build_type, path=str(tenzir_bin.resolve()))
 
 
-def _git_revision() -> Optional[str]:
+def _git_revision() -> str | None:
     try:
         proc = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
         return proc.stdout.strip() or None
@@ -222,13 +222,13 @@ def _run_once(
     definition: BenchmarkDefinition,
     dataset: Path,
     tenzir_bin: Path,
-    timeout: Optional[int],
+    timeout: int | None,
     output_root: Path,
     build: BuildInfo,
-    revision: Optional[str],
+    revision: str | None,
     store_result: bool,
     run_index: int,
-) -> Optional[Path]:
+) -> Path | None:
     env = {"BENCHMARK_INPUT_PATH": str(dataset)}
     for key, value in definition.env.items():
         env[key] = value
@@ -257,7 +257,7 @@ def _run_once(
     input_bytes = dataset.stat().st_size if definition.input_measure else output_bytes
     if input_bytes is None:
         input_bytes = 0
-    timestamp = datetime.now(timezone.utc)
+    timestamp = datetime.now(UTC)
     runtime = {
         "wall_clock": metrics.wall_clock,
         "cpu_user": metrics.cpu_user,

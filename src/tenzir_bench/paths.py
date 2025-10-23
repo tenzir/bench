@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import errno
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from platformdirs import PlatformDirs
 
@@ -21,7 +21,7 @@ class BenchPaths:
     state_root: Path = field(default_factory=Path)
 
     @classmethod
-    def create(cls) -> "BenchPaths":
+    def create(cls) -> BenchPaths:
         dirs = PlatformDirs(appname="tenzir-bench", appauthor="Tenzir", ensure_exists=True)
         cache_root = _ensure_with_fallback(Path(dirs.user_cache_path), fallback="cache")
         state_root = _ensure_with_fallback(Path(dirs.user_state_path), fallback="state")

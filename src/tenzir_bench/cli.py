@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence
 
 import click
 
+from .compare import resolve_binaries, run_compare
 from .datasets import DatasetManager
 from .evaluation import evaluate as evaluate_results
 from .executor import BenchmarkExecutor
@@ -16,7 +17,6 @@ from .paths import BenchPaths
 from .publisher import Publisher
 from .runners import RunnerRegistry
 from .syncer import sync as sync_results
-from .compare import resolve_binaries, run_compare
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
                "error": logging.ERROR, "critical": logging.CRITICAL}
@@ -52,7 +52,7 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 @click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
 @click.option("--tenzir-bin", type=click.Path(path_type=Path), help="Path to the Tenzir binary.")
 @click.pass_obj
-def run(paths: BenchPaths, pattern: Optional[str], tenzir_bin: Optional[Path]) -> None:
+def run(paths: BenchPaths, pattern: str | None, tenzir_bin: Path | None) -> None:
     """Execute benchmarks and record reports."""
     tenzir = tenzir_bin or _resolve_tenzir()
     registry = RunnerRegistry()
@@ -79,7 +79,7 @@ def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:
 @click.option("--base", type=click.Path(path_type=Path), help="Baseline directory for evaluation.")
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
 @click.pass_obj
-def eval(paths: BenchPaths, runs: Optional[Path], base: Optional[Path], compact: bool) -> None:
+def eval(paths: BenchPaths, runs: Path | None, base: Path | None, compact: bool) -> None:
     """Evaluate benchmark results against references."""
     runs_dir = runs or paths.results_state_dir
     evaluate_results(paths, runs_dir, base, compact)
@@ -91,7 +91,7 @@ def eval(paths: BenchPaths, runs: Optional[Path], base: Optional[Path], compact:
 @click.option("--destination", required=True, help="Remote bucket/prefix to publish to.")
 @click.option("--force", is_flag=True, help="Re-upload artifacts even if they exist remotely.")
 @click.pass_obj
-def publish(paths: BenchPaths, runs: Optional[Path], destination: str, force: bool) -> None:
+def publish(paths: BenchPaths, runs: Path | None, destination: str, force: bool) -> None:
     """Publish run reports to the remote store."""
     runs_dir = runs or paths.results_state_dir
     publisher = Publisher()
@@ -114,7 +114,7 @@ def compare(bench_paths: BenchPaths, compact: bool, arguments: Sequence[str]) ->
     entries: list[tuple[str, bool]] = []
     benchmark_dirs: list[Path] = []
     force_next = False
-    base: Optional[str] = None
+    base: str | None = None
     base_force = False
     i = 0
     while i < len(arguments):

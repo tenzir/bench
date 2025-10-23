@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
 
 from .metadata import GitHubMetadata
 from .paths import BenchPaths
@@ -17,15 +16,15 @@ _LOG = logging.getLogger(__name__)
 @dataclass
 class EvaluationResult:
     pipeline: str
-    candidate: Optional[float]
-    baseline: Optional[float]
-    delta: Optional[float]
-    candidate_rss: Optional[int]
-    baseline_rss: Optional[int]
-    rss_delta: Optional[int]
+    candidate: float | None
+    baseline: float | None
+    delta: float | None
+    candidate_rss: int | None
+    baseline_rss: int | None
+    rss_delta: int | None
 
 
-def evaluate(paths: BenchPaths, runs_dir: Path, base_dir: Optional[Path], compact: bool) -> None:
+def evaluate(paths: BenchPaths, runs_dir: Path, base_dir: Path | None, compact: bool) -> None:
     metadata = GitHubMetadata(paths.metadata_cache_dir)
     release_tag = _latest_release(metadata)
     main_commit = _latest_main(metadata)
@@ -56,7 +55,7 @@ def evaluate(paths: BenchPaths, runs_dir: Path, base_dir: Optional[Path], compac
         _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports)
 
 
-def _latest_release(metadata: GitHubMetadata) -> Optional[str]:
+def _latest_release(metadata: GitHubMetadata) -> str | None:
     releases = metadata.fetch_releases()
     if not releases:
         _LOG.warning("No releases found when querying GitHub")
@@ -64,7 +63,7 @@ def _latest_release(metadata: GitHubMetadata) -> Optional[str]:
     return releases[0]["tag"]
 
 
-def _latest_main(metadata: GitHubMetadata) -> Optional[str]:
+def _latest_main(metadata: GitHubMetadata) -> str | None:
     commits = metadata.fetch_main_commits()
     if not commits:
         return None
@@ -96,7 +95,7 @@ def _print_compact_table(
         delta_main_pct = _format_percent(cand, main)
         print(
             f"{pipeline:40} {base_val:>10} {cand_val:>10} {delta_base:>10} {delta_base_pct:>10}"
-            f" {main_val:>10} {delta_main:>10} {delta_main_pct:>10}"
+            f" {main_val:>10} {delta_main:>10} {delta_main_pct:>10}",
         )
 
 
@@ -114,7 +113,7 @@ def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports
             rss_delta = _rss_delta(cand, base)
             print(
                 f"  Baseline:  wall={base.wall_clock:.2f}s rss={base.rss_kb}k "
-                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k"
+                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k",
             )
         if main:
             delta = _delta(cand, main)
@@ -122,7 +121,7 @@ def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports
             rss_delta = _rss_delta(cand, main)
             print(
                 f"  Main:      wall={main.wall_clock:.2f}s rss={main.rss_kb}k "
-                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k"
+                f"Δ={delta:+.2f}s ({pct:+.1f}%) Δrss={rss_delta:+}k",
             )
         print()
 
@@ -141,7 +140,7 @@ def _delta(candidate, reference) -> float:
     return candidate.wall_clock - reference.wall_clock
 
 
-def _percent_delta(candidate, reference) -> Optional[float]:
+def _percent_delta(candidate, reference) -> float | None:
     if not candidate or not reference or reference.wall_clock == 0:
         return None
     return ((candidate.wall_clock - reference.wall_clock) / reference.wall_clock) * 100.0

@@ -4,21 +4,20 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
 
 from .definitions import BenchmarkError, parse_benchmark_file
 from .executor import BenchmarkExecutor
 from .paths import BenchPaths
-from .runners import RunnerRegistry
 from .reports import Report, load_reports, select_fastest
-from .definitions import parse_benchmark_file, BenchmarkError
+from .runners import RunnerRegistry
 
 _LOG = logging.getLogger(__name__)
 
 
-def resolve_binaries(entries: Sequence[Tuple[str, bool]]) -> List[Tuple[Path, bool]]:
-    resolved: List[Tuple[Path, bool]] = []
+def resolve_binaries(entries: Sequence[tuple[str, bool]]) -> list[tuple[Path, bool]]:
+    resolved: list[tuple[Path, bool]] = []
     for value, force in entries:
         path = Path(value)
         if path.is_dir():
@@ -35,7 +34,7 @@ def resolve_binaries(entries: Sequence[Tuple[str, bool]]) -> List[Tuple[Path, bo
 
 def run_compare(
     paths: BenchPaths,
-    binaries: List[Tuple[Path, bool]],
+    binaries: list[tuple[Path, bool]],
     compact: bool,
     benchmark_dirs: Sequence[Path],
 ) -> None:
@@ -84,7 +83,7 @@ def _ensure_reports(
         if output_dir.exists() and any(output_dir.rglob("*.json")):
             _LOG.info("Reusing cached reports in %s", output_dir)
             return output_dir
-        collected: List[Path] = []
+        collected: list[Path] = []
         for context in contexts:
             run_dir = executor._result_dir(context, build)  # type: ignore[attr-defined]
             collected.extend(run_dir.glob("*.json"))
@@ -143,8 +142,8 @@ def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> It
 
 def _render_table(
     baseline_label: str,
-    baseline_reports: Dict[str, Report],
-    candidate_reports: Sequence[Tuple[str, Dict[str, Report]]],
+    baseline_reports: dict[str, Report],
+    candidate_reports: Sequence[tuple[str, dict[str, Report]]],
 ) -> None:
     candidate_label_lengths = [len(label) for label, _ in candidate_reports]
     label_width = max([len("build"), len(baseline_label), *candidate_label_lengths])
@@ -152,7 +151,7 @@ def _render_table(
     separator = "-" * len(header)
     pipelines = sorted(
         set(baseline_reports)
-        | set().union(*(reports.keys() for _, reports in candidate_reports))
+        | set().union(*(reports.keys() for _, reports in candidate_reports)),
     )
     for pipeline in pipelines:
         print(pipeline)
@@ -168,8 +167,8 @@ def _render_table(
 
 def _format_row(
     label: str,
-    report: Optional['Report'],
-    baseline: Optional['Report'],
+    report: Report | None,
+    baseline: Report | None,
     *,
     label_width: int,
     show_delta: bool,
@@ -194,17 +193,17 @@ def _format_row(
     )
 
 
-def _fmt_seconds(report: Optional['Report']) -> str:
+def _fmt_seconds(report: Report | None) -> str:
     return f"{report.wall_clock:.2f}" if report else "-"
 
 
-def _fmt_rss(report: Optional['Report']) -> str:
+def _fmt_rss(report: Report | None) -> str:
     if not report or report.rss_kb is None:
         return "-"
     return f"{report.rss_kb / 1024:.0f} MB"
 
 
-def _fmt_percent_change(base: Optional[float], cand: Optional[float]) -> str:
+def _fmt_percent_change(base: float | None, cand: float | None) -> str:
     if base is None or cand is None or base == 0:
         return "-"
     delta = ((cand - base) / base) * 100
