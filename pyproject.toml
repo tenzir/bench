@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bench = "tenzir_bench.cli:main"
+tenzir-bench = "tenzir_bench.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/tenzir/tenzir"
