@@ -7,11 +7,11 @@ import logging
 import os
 import socket
 import subprocess
-import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
 from .hashing import hash_benchmark, hash_file
@@ -239,10 +239,13 @@ def _run_once(
         if output_file.exists():
             output_file.unlink()
         env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
+    forward_keys = sorted(env.keys())
+    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
     env = {**os.environ, **env}
-    with tempfile.NamedTemporaryFile("w", suffix=".tql", delete=False) as tmp:
-        tmp.write(definition.pipeline_body + "\n")
-        pipeline_path = Path(tmp.name)
+    pipeline_dir = output_root / "_pipelines"
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
+    pipeline_path = pipeline_dir / f"{uuid4().hex}.tql"
+    pipeline_path.write_text(definition.pipeline_body + "\n", encoding="utf-8")
     command = [str(tenzir_bin), "--file", str(pipeline_path)] + definition.tenzir_args
     try:
         metrics = runner.run(command, env=env, timeout=timeout)

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import re
+import shlex
 import shutil
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from textwrap import dedent
 
 from .definitions import BenchmarkError, parse_benchmark_file
 from .executor import BenchmarkExecutor
@@ -16,20 +20,29 @@ from .runners import RunnerRegistry
 _LOG = logging.getLogger(__name__)
 
 
-def resolve_binaries(entries: Sequence[tuple[str, bool]]) -> list[tuple[Path, bool]]:
+def resolve_binaries(paths: BenchPaths, entries: Sequence[tuple[str, bool]]) -> list[tuple[Path, bool]]:
     resolved: list[tuple[Path, bool]] = []
     for value, force in entries:
-        path = Path(value)
-        if path.is_dir():
-            candidate = path / "bin" / "tenzir"
-        else:
-            candidate = path
-        if not candidate.exists():
-            raise FileNotFoundError(f"No tenzir executable at {candidate}")
-        resolved.append((candidate.resolve(), force))
+        resolved.append((_resolve_entry(paths, value), force))
     if len(resolved) < 2:
         raise ValueError("compare requires at least two binaries")
     return resolved
+
+
+def _resolve_entry(paths: BenchPaths, value: str) -> Path:
+    if value.startswith("docker://"):
+        image = value[len("docker://") :].strip()
+        if not image:
+            raise ValueError("docker image reference must not be empty")
+        return _ensure_docker_wrapper(paths, image)
+    path = Path(value)
+    if path.is_dir():
+        candidate = path / "bin" / "tenzir"
+    else:
+        candidate = path
+    if not candidate.exists():
+        raise FileNotFoundError(f"No tenzir executable at {candidate}")
+    return candidate.resolve()
 
 
 def run_compare(
@@ -215,3 +228,71 @@ def _label(path: Path) -> str:
     if path.name == "tenzir" and path.parent.name == "bin":
         return path.parent.parent.name
     return path.parent.name if path.is_file() else path.name
+
+
+def _ensure_docker_wrapper(paths: BenchPaths, image: str) -> Path:
+    wrapper_dir = paths.ensure_dir(paths.state_dir / "docker")
+    digest = hashlib.sha256(image.encode("utf-8")).hexdigest()[:8]
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", image)
+    wrapper_path = wrapper_dir / f"{safe}-{digest}.sh"
+    script = _docker_wrapper_script(image, paths)
+    wrapper_path.write_text(script, encoding="utf-8")
+    wrapper_path.chmod(0o755)
+    return wrapper_path
+
+
+def _docker_wrapper_script(image: str, paths: BenchPaths) -> str:
+    cache_dir = shlex.quote(str(paths.cache_dir))
+    state_dir = shlex.quote(str(paths.state_dir))
+    work_dir = shlex.quote(str(Path.cwd()))
+    image_ref = shlex.quote(image)
+    return dedent(
+        f"""\
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        IMAGE={image_ref}
+        CACHE_DIR={cache_dir}
+        STATE_DIR={state_dir}
+        WORK_DIR={work_dir}
+
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "docker executable not found" >&2
+            exit 127
+        fi
+
+        declare -a volumes=()
+
+        _add_volume() {{
+            local dir="$1"
+            local mode="${{2:-}}"
+            if [[ -z "$dir" || ! -d "$dir" ]]; then
+                return
+            fi
+            local spec="${{dir}}:${{dir}}"
+            if [[ -n "$mode" ]]; then
+                spec="${{spec}}:${{mode}}"
+            fi
+            volumes+=("-v" "$spec")
+        }}
+
+        _add_volume "$CACHE_DIR" "ro"
+        _add_volume "$STATE_DIR"
+        _add_volume "$WORK_DIR"
+
+        declare -a env_names=()
+        if [[ -n "${{TENZIR_BENCH_FORWARD_ENV:-}}" ]]; then
+            IFS=',' read -ra env_names <<< "${{TENZIR_BENCH_FORWARD_ENV}}"
+        fi
+        declare -a forward_envs=()
+        for name in "${{env_names[@]}}"; do
+            name="${{name//[[:space:]]/}}"
+            [[ -z "$name" ]] && continue
+            if [[ -n "${{!name-}}" ]]; then
+                forward_envs+=("-e" "$name")
+            fi
+        done
+
+        exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${{volumes[@]}}" "${{forward_envs[@]}}" "$IMAGE" "$@"
+        """,
+    )

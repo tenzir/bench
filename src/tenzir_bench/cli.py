@@ -110,6 +110,9 @@ def compare(bench_paths: BenchPaths, compact: bool, arguments: Sequence[str]) ->
       --base PATH        baseline build (required)
       --candidate PATH   candidate build (repeatable)
       --run              force executing the next --base/--candidate path
+
+    PATH entries may refer to directories/files that contain a Tenzir binary
+    or docker images using the docker://IMAGE notation.
     """
     entries: list[tuple[str, bool]] = []
     benchmark_dirs: list[Path] = []
@@ -142,7 +145,7 @@ def compare(bench_paths: BenchPaths, compact: bool, arguments: Sequence[str]) ->
     if not entries:
         raise click.BadParameter("at least one --candidate must be specified")
     binaries = [(base, base_force)] + entries
-    resolved = resolve_binaries(binaries)
+    resolved = resolve_binaries(bench_paths, binaries)
     run_compare(bench_paths, resolved, compact, benchmark_dirs)
 
 

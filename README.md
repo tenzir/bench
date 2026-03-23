@@ -112,6 +112,16 @@ You can also reference synced artefacts directly, e.g. `bench compare
 --baseline latest-release --under-test main` to diff the cached release and main
 results without locating binaries manually.
 
+For quick experiments you can point to Docker images as build candidates by
+prefixing them with `docker://`, e.g.
+
+```bash
+bench compare --base docker://ghcr.io/tenzir/tenzir:v5.18.0 --candidate docker://ghcr.io/tenzir/tenzir:main benchmarks/operators
+```
+
+The harness automatically mounts the dataset and state directories into the
+container and streams the benchmark environment variables across.
+
 ## Writing Benchmarks and Managing Baselines
 
 ### Authoring Pipelines
