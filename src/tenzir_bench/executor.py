@@ -73,7 +73,7 @@ class BenchmarkExecutor:
         self._progress_current = 0
         self._progress_planned = total > 0
 
-    def execute(self, context: BenchmarkContext) -> None:
+    def execute(self, context: BenchmarkContext) -> list[Path]:
         runner = self.runners.get(context.definition.runner)
         build = self._get_build_info()
         revision = _git_revision()
