@@ -1,0 +1,169 @@
+/* Pipeline for Detection Finding [2004] Class */
+/* Mapper for suricata.alert*/
+
+/* export */
+from https://storage.googleapis.com/tenzir-datasets/M57/suricata.json.zst read suricata --no-infer
+/* from /home/cybernovo/Documents/Programming/ocsf-normalization/example_data/suricata/eve.json read suricata */
+| where #schema == "suricata.alert" /* Only looking at suricata alerts at the moment */
+| taste 5 /* only for testing */
+| put 
+/* Required Fields */
+time = timestamp,
+severity_id = alert.severity, /* Calculation in python*/
+
+metadata = <
+version: "1.2.0", 
+product: "Suricata", 
+tenant_uid: null,
+original_time: null, /* maybe timestamp */
+log_provider: null,
+log_name: null,
+sequence: null,
+extensions: null,
+extension: null,
+profiles: null,
+processed_time: null,
+modified_time: null,
+loggers: null,
+logged_time: null, /* maybe timestamp again... */
+log_version: null,
+log_level: null,
+labels: null,
+uid: null, /* maybe generate uuid */
+event_code: "suricata.alert",
+correlation_uid: null,
+>,
+
+class_uid = 2004, /* Detection Finding */
+finding_info = <
+uid: null, 
+title: null,
+analytic: null, /* required but problems adding nested entries*/
+types: null,
+src_url: null,
+related_events: null,
+related_analytics: null,
+product_uid: null,
+modified_time: null,
+attacks: null,
+last_seen_time: null,
+kill_chain: null,
+first_seen_time: null,
+desc: null,
+data_sources: null,
+created_time: null,
+>,
+category_uid = 2, /* Findings */
+activity_id = 99, /* Unclear specification by OSCF and not really fitting */
+type_uid, /* Calculation in python below */
+
+/* Recommended Fields */
+timezone_offset, /* Cant be extracted*/
+status_id = 1, /* Best fitting option is "1: New Finding". Caluclation in python*/
+/* resources = http.http_user_agent, /* Todo: This does not work for every alert */
+resources = <
+agent_list: null,
+criticality: null,
+data: null,
+group: null,
+labels: null,
+name: null,
+namespace: null,
+owner: null,
+type: null,
+uid: null,
+version: null,
+>,/* agent_list contains a lot of information of agent objects associated with a device, endpoint, or resource. */ 
+message = alert.signature,
+evidences = <
+src_endpoint: null,
+process: null,
+file: null,
+dst_endpoint: null,
+databucket: null,
+database: null,
+query: null,
+container: null,
+connection_info: null,
+actor: null,
+api: null,
+data: null,
+>, /* Unspecific. Todo: Maybe put flow or the full alert in an array here */
+confidence_id = 0, /* No direct mapping possible. Todo: Maybe combine it with severity_id*/
+
+/* Optional Fields */
+type_name, /* Set in python */
+activity_name, /* Set in python */
+status, /* Set in python */
+status_detail = event_type, /* Todo: Not completly accurate*/
+confidence, /* Set in python*/
+severity,
+class_name,
+category_name,
+
+unmapped,
+raw_data,
+enrichments = <
+value: null,
+name: null, 
+type: null, 
+data: null, 
+provider: null, 
+>,
+observables = <
+name: null,
+reputation: null, 
+type: null, 
+type_id: null, 
+value: null, 
+>,
+
+/* not available */
+vulnerabilities = <
+references: null,
+cwe: null,
+cve: null,
+vendor_name: null,
+title: null,
+packages: null,
+severity: null,
+remediation: null,
+related_vulnerabilities: null,
+last_seen_time: null,
+kb_article_list: null,
+kb_articles: null,
+is_fix_available: null,
+fix_available: null,
+first_seen_time: null,
+is_exploit_available: null,
+affected_packages: null,
+affected_code: null,
+>,
+remediation= <
+desc: null,
+kb_articles: null,
+kb_article_list: null,
+references: null,
+>,
+comment,
+confidence_score,
+status_code, /*Todo: Maybe extractable */
+
+start_time,
+end_time,
+duration,
+count,
+
+risk_score,
+risk_level_id,
+risk_level,
+
+impact_score,
+impact_id,
+impact
+
+/* Set fiels using case-selection */
+| python --file /home/cybernovo/Documents/Programming/net-lab/ocsf_v1.2.0/pipelines/python/suricata_alert_normalization.py
+
+/* Save normalized logs as json */
+/* | to /home/cybernovo/Documents/Programming/net-lab/ocsf/data/json/normalized_suricata_alert.json write json */
