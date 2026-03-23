@@ -33,10 +33,10 @@ Use `bench run path/to/pipeline.tql` to target a specific scenario.
 
 ### `bench sync`
 
-Download the reference results from the central location (s3). By default,
-downloads only the result data matching the current architecture. Only takes the
-results generated from the most recently published main branch and all published
-release versions of Tenzir.
+Download the reference results from the central location (s3). By default, the
+command only downloads artifacts for all published release versions and the most
+recent published `main` build that match the known artifact identifiers from
+GitHub metadata.
 
 Syncs all results when the `--full` flag is given.
 
@@ -62,21 +62,19 @@ run per pipeline.
 bench eval --runs ~/.local/state/tenzir-bench/results --compact
 ```
 
-The optional `--base` option 
+The optional `--base` option points evaluation at an explicit baseline
+directory instead of the synced release artifacts.
 
 The full JSON report (without `--compact`) includes raw metrics, absolute
 deltas, and percentage changes for every measured attribute.
 
-When invoked without `--base`/`--runs`, `bench eval` automatically queries GitHub
-for the most recent release tags and the latest commits on `main`, then selects
-the corresponding artifacts that were previously synced via `bench sync`. It
-uses the newest main-branch report available in the central location for the
-current hardware. If no main results exist for this platform, `bench eval`
-emits a warning and omits the main comparison. If neither release nor main
-references are available, the command fails with an error message that suggests
-running `bench compare` against locally built binaries instead. Use `--strict`
-to make the command stop when references are missing or stale rather than
-falling back to partial output.
+When invoked without `--base`/`--runs`, `bench eval` automatically queries
+GitHub for the most recent release tags and the latest commit on `main`, then
+selects the corresponding artifacts that were previously synced via
+`bench sync`. If no main results exist, `bench eval` emits a warning and omits
+the main comparison. If neither release nor main references are available, the
+command fails with an error message that suggests running `bench compare`
+against locally built binaries instead.
 
 > **Note:** GitHub API calls honor the `GITHUB_TOKEN` environment variable when
 > present but also work unauthenticated (subject to rate limits).
@@ -106,11 +104,8 @@ bench compare <path/to/baseline/bin/tenzir> <path/to/under-test/bin/tenzir> --co
 ```
 
 The compact output mode summarizes wall-clock time and peak RSS of the fastest
-run per pipeline in a compact table.
-
-You can also reference synced artefacts directly, e.g. `bench compare
---baseline latest-release --under-test main` to diff the cached release and main
-results without locating binaries manually.
+run per pipeline in a compact table. Without `--compact`, the command prints a
+more detailed view that also shows the staged report source paths.
 
 For quick experiments you can point to Docker images as build candidates by
 prefixing them with `docker://`, e.g.
