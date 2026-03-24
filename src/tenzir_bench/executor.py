@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import shlex
 import socket
 import subprocess
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
 from .hashing import hash_benchmark, hash_file
@@ -30,14 +31,28 @@ class BenchmarkContext:
 
 
 class BenchmarkExecutor:
-    def __init__(self, paths: BenchPaths, tenzir_bin: Path, runner_registry: RunnerRegistry) -> None:
+    def __init__(
+        self,
+        paths: BenchPaths,
+        tenzir_bin: Path,
+        runner_registry: RunnerRegistry,
+        tenzir_args: Sequence[str] = (),
+        *,
+        dry_run: bool = False,
+        verbose: bool = False,
+    ) -> None:
         self.paths = paths
         self.tenzir_bin = tenzir_bin
+        self.tenzir_args = tuple(tenzir_args)
         self.runners = runner_registry
+        self.dry_run = dry_run
+        self.verbose = verbose
         self._build_info: BuildInfo | None = None
         self._progress_total: int = 0
         self._progress_current: int = 0
         self._progress_planned: bool = False
+        self._printed_commands: set[tuple[str, tuple[str, ...]]] = set()
+        self._validated_invocation = False
 
     def discover(self, pattern: str | None) -> Iterable[BenchmarkContext]:
         files = _discover_files(pattern)
@@ -79,6 +94,17 @@ class BenchmarkExecutor:
         revision = _git_revision()
         output_root = self._result_dir(context, build)
         output_root.mkdir(parents=True, exist_ok=True)
+        self._validate_invocation()
+        env = _benchmark_env(context.definition, context.dataset_path, output_root)
+        command = _tenzir_command(
+            self.tenzir_bin,
+            [*self.tenzir_args, *context.definition.tenzir_args],
+            pipeline_path=context.definition.path,
+        )
+        self._print_invocation_once(context, env, command)
+        if self.dry_run:
+            _LOG.info("Dry run: validated benchmark %s", context.definition.id)
+            return []
         results: list[Path] = []
         total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
         dynamic_progress = False
@@ -98,10 +124,12 @@ class BenchmarkExecutor:
             _run_once(
                 runner=runner,
                 definition=context.definition,
-                dataset=context.dataset_path,
-                tenzir_bin=self.tenzir_bin,
+                env=env,
+                command=command,
+                binary_args=self.tenzir_args,
                 timeout=context.definition.runtime.timeout_seconds,
                 output_root=output_root,
+                input_path=context.dataset_path,
                 build=build,
                 revision=revision,
                 store_result=False,
@@ -119,10 +147,12 @@ class BenchmarkExecutor:
             result = _run_once(
                 runner=runner,
                 definition=context.definition,
-                dataset=context.dataset_path,
-                tenzir_bin=self.tenzir_bin,
+                env=env,
+                command=command,
+                binary_args=self.tenzir_args,
                 timeout=context.definition.runtime.timeout_seconds,
                 output_root=output_root,
+                input_path=context.dataset_path,
                 build=build,
                 revision=revision,
                 store_result=True,
@@ -139,6 +169,54 @@ class BenchmarkExecutor:
             self._progress_current = 0
         return results
 
+    def validate(self, context: BenchmarkContext) -> None:
+        build = self._get_build_info()
+        output_root = self._result_dir(context, build)
+        self._validate_invocation()
+        env = _benchmark_env(context.definition, context.dataset_path, output_root)
+        command = _tenzir_command(
+            self.tenzir_bin,
+            [*self.tenzir_args, *context.definition.tenzir_args],
+            pipeline_path=context.definition.path,
+        )
+        self._print_invocation_once(context, env, command)
+
+    def _print_invocation_once(
+        self,
+        context: BenchmarkContext,
+        env: dict[str, str],
+        command: Sequence[str],
+    ) -> None:
+        if not self.verbose:
+            return
+        key = (context.definition.id, tuple(command))
+        if key in self._printed_commands:
+            return
+        self._printed_commands.add(key)
+        env_items = [f"{name}={env[name]}" for name in sorted(env)]
+        options = f" {' '.join(self.tenzir_args)}" if self.tenzir_args else ""
+        print(f"# {context.definition.id} ({self.tenzir_bin}{options})")
+        print(shlex.join(["env", *env_items, *command]))
+
+    def _validate_invocation(self) -> None:
+        if self._validated_invocation:
+            return
+        try:
+            subprocess.run(
+                _tenzir_command(
+                    self.tenzir_bin,
+                    self.tenzir_args,
+                    pipeline="version | select version | write_ndjson",
+                ),
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+            raise RuntimeError(f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}") from exc
+        self._validated_invocation = True
+
     def _progress_prefix(self) -> str:
         if self._progress_total <= 0:
             return ""
@@ -151,13 +229,13 @@ class BenchmarkExecutor:
             self.paths.results_state_dir
             / context.benchmark_hash
             / context.input_hash
-            / build.build_id
+            / build_result_id(build, self.tenzir_args)
             / context.definition.runner
         )
 
     def _get_build_info(self) -> BuildInfo:
         if self._build_info is None:
-            self._build_info = _detect_build(self.tenzir_bin)
+            self._build_info = _detect_build(self.tenzir_bin, self.tenzir_args)
         return self._build_info
 
 
@@ -191,10 +269,14 @@ def _discover_files(pattern: str | None) -> list[Path]:
     return files
 
 
-def _detect_build(tenzir_bin: Path) -> BuildInfo:
+def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
     try:
         proc = subprocess.run(
-            [str(tenzir_bin), "version | select version, build_type=build.type | write_ndjson"],
+            _tenzir_command(
+                tenzir_bin,
+                tenzir_args,
+                pipeline='version | select version, build_type=build.type | write_ndjson',
+            ),
             check=True,
             capture_output=True,
             text=True,
@@ -220,44 +302,32 @@ def _git_revision() -> str | None:
 def _run_once(
     runner,
     definition: BenchmarkDefinition,
-    dataset: Path,
-    tenzir_bin: Path,
+    env: dict[str, str],
+    command: Sequence[str],
+    binary_args: Sequence[str],
     timeout: int | None,
     output_root: Path,
+    input_path: Path,
     build: BuildInfo,
     revision: str | None,
     store_result: bool,
     run_index: int,
 ) -> Path | None:
-    env = {"BENCHMARK_INPUT_PATH": str(dataset)}
-    for key, value in definition.env.items():
-        env[key] = value
     output_file = None
     if definition.output_path:
         output_file = output_root / "outputs" / definition.output_path
-        output_file.parent.mkdir(parents=True, exist_ok=True)
         if output_file.exists():
             output_file.unlink()
-        env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
-    forward_keys = sorted(env.keys())
-    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
-    env = {**os.environ, **env}
-    pipeline_dir = output_root / "_pipelines"
-    pipeline_dir.mkdir(parents=True, exist_ok=True)
-    pipeline_path = pipeline_dir / f"{uuid4().hex}.tql"
-    pipeline_path.write_text(definition.pipeline_body + "\n", encoding="utf-8")
-    command = [str(tenzir_bin), "--file", str(pipeline_path)] + definition.tenzir_args
+    run_env = {**os.environ, **env}
     try:
-        metrics = runner.run(command, env=env, timeout=timeout)
+        metrics = runner.run(command, env=run_env, timeout=timeout)
     except RuntimeError as exc:
         _LOG.error("Runner failed for %s: %s", definition.id, exc)
         return None
-    finally:
-        pipeline_path.unlink(missing_ok=True)
     if not store_result:
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
-    input_bytes = dataset.stat().st_size if definition.input_measure else output_bytes
+    input_bytes = input_path.stat().st_size if definition.input_measure else output_bytes
     if input_bytes is None:
         input_bytes = 0
     timestamp = datetime.now(UTC)
@@ -282,14 +352,15 @@ def _run_once(
             "version": build.version,
             "type": build.build_type,
             "path": build.path,
+            "options": list(binary_args),
         },
         "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "environment": _environment_snapshot(),
         "command": command,
         "tags": definition.tags,
         "input": {
-            "path": str(dataset),
-            "bytes": dataset.stat().st_size,
+            "path": str(input_path),
+            "bytes": input_path.stat().st_size,
             "records": definition.input_events,
             "measure": "input" if definition.input_measure else "output",
         },
@@ -326,3 +397,41 @@ def _environment_snapshot() -> dict:
             "cores": os.cpu_count(),
         },
     }
+
+
+def build_result_id(build: BuildInfo, tenzir_args: Sequence[str]) -> str:
+    if not tenzir_args:
+        return build.build_id
+    digest = hashlib.sha256("\0".join(tenzir_args).encode("utf-8")).hexdigest()[:12]
+    return f"{build.build_id}-{digest}"
+
+
+def _tenzir_command(
+    tenzir_bin: Path,
+    tenzir_args: Sequence[str],
+    *,
+    pipeline: str | None = None,
+    pipeline_path: Path | None = None,
+) -> list[str]:
+    command = [str(tenzir_bin), *tenzir_args]
+    if pipeline is not None:
+        command.append(pipeline)
+    if pipeline_path is not None:
+        command.extend(["--file", str(pipeline_path)])
+    return command
+
+
+def _benchmark_env(
+    definition: BenchmarkDefinition,
+    dataset: Path,
+    output_root: Path,
+) -> dict[str, str]:
+    env = {"BENCHMARK_INPUT_PATH": str(dataset)}
+    env.update(definition.env)
+    if definition.output_path:
+        output_file = output_root / "outputs" / definition.output_path
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
+    forward_keys = sorted(env.keys())
+    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
+    return env

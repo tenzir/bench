@@ -12,7 +12,7 @@ from pathlib import Path
 from textwrap import dedent
 
 from .definitions import BenchmarkError, parse_benchmark_file
-from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo
+from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo, build_result_id
 from .paths import BenchPaths
 from .reports import Report, load_reports, select_fastest
 from .runners import RunnerRegistry
@@ -20,10 +20,13 @@ from .runners import RunnerRegistry
 _LOG = logging.getLogger(__name__)
 
 
-def resolve_binaries(paths: BenchPaths, entries: Sequence[tuple[str, bool]]) -> list[tuple[Path, bool]]:
-    resolved: list[tuple[Path, bool]] = []
-    for value, force in entries:
-        resolved.append((_resolve_entry(paths, value), force))
+def resolve_binaries(
+    paths: BenchPaths,
+    entries: Sequence[tuple[str, bool, tuple[str, ...]]],
+) -> list[tuple[Path, bool, tuple[str, ...]]]:
+    resolved: list[tuple[Path, bool, tuple[str, ...]]] = []
+    for value, force, tenzir_args in entries:
+        resolved.append((_resolve_entry(paths, value), force, tenzir_args))
     if len(resolved) < 2:
         raise ValueError("compare requires at least two binaries")
     return resolved
@@ -42,18 +45,28 @@ def _resolve_entry(paths: BenchPaths, value: str) -> Path:
         candidate = path
     if not candidate.exists():
         raise FileNotFoundError(f"No tenzir executable at {candidate}")
-    return candidate.resolve()
+    return candidate
 
 
 def run_compare(
     paths: BenchPaths,
-    binaries: list[tuple[Path, bool]],
+    binaries: list[tuple[Path, bool, tuple[str, ...]]],
     compact: bool,
     benchmark_dirs: Sequence[Path],
+    *,
+    dry_run: bool = False,
+    verbose: bool = False,
 ) -> None:
     registry = RunnerRegistry()
-    baseline_bin, baseline_force = binaries[0]
-    baseline_executor = BenchmarkExecutor(paths, baseline_bin, registry)
+    baseline_bin, baseline_force, baseline_args = binaries[0]
+    baseline_executor = BenchmarkExecutor(
+        paths,
+        baseline_bin,
+        registry,
+        tenzir_args=baseline_args,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
     contexts = list(_discover_from_dirs(baseline_executor, benchmark_dirs))
     if not contexts:
         _LOG.error("No benchmarks found to execute")
@@ -63,19 +76,42 @@ def run_compare(
     shutil.rmtree(compare_root, ignore_errors=True)
     compare_root.mkdir(parents=True, exist_ok=True)
 
-    targets = [(baseline_bin, baseline_force, baseline_executor)]
-    for candidate_bin, candidate_force in binaries[1:]:
-        targets.append((candidate_bin, candidate_force, BenchmarkExecutor(paths, candidate_bin, registry)))
-    infos = [executor._get_build_info() for _, _, executor in targets]  # type: ignore[attr-defined]
+    targets = [(baseline_bin, baseline_force, baseline_args, baseline_executor)]
+    for candidate_bin, candidate_force, candidate_args in binaries[1:]:
+        targets.append((
+            candidate_bin,
+            candidate_force,
+            candidate_args,
+            BenchmarkExecutor(
+                paths,
+                candidate_bin,
+                registry,
+                tenzir_args=candidate_args,
+                dry_run=dry_run,
+                verbose=verbose,
+            ),
+        ))
+    infos = [executor._get_build_info() for _, _, _, executor in targets]  # type: ignore[attr-defined]
     labels = _unique_labels(
-        [_display_label(info, binary) for (binary, _, _), info in zip(targets, infos, strict=True)],
-        [binary for binary, _, _ in targets],
+        [
+            _display_label(info, binary, tenzir_args)
+            for (binary, _, tenzir_args, _), info in zip(targets, infos, strict=True)
+        ],
+        [binary for binary, _, _, _ in targets],
     )
     prepared_dirs: list[tuple[str, Path]] = []
-    for (binary, force, executor), info, label in zip(targets, infos, labels, strict=True):
-        compare_dir = compare_root / _cache_key(info, binary)
+    for (binary, force, tenzir_args, executor), info, label in zip(targets, infos, labels, strict=True):
+        compare_dir = compare_root / _cache_key(info, binary, tenzir_args)
+        if dry_run:
+            for context in contexts:
+                executor.validate(context)
+            prepared_dirs.append((label, compare_dir))
+            continue
         _ensure_reports(executor, contexts, compare_dir, force)
         prepared_dirs.append((label, compare_dir))
+
+    if dry_run:
+        return
 
     baseline_label, baseline_dir = prepared_dirs[0]
     candidate_dirs = prepared_dirs[1:]
@@ -273,8 +309,11 @@ def _label(path: Path) -> str:
     return path.parent.name if path.is_file() else path.name
 
 
-def _display_label(info: BuildInfo, path: Path) -> str:
-    return info.build_id if info.build_id != "unknown" else _label(path)
+def _display_label(info: BuildInfo, path: Path, tenzir_args: Sequence[str]) -> str:
+    label = info.build_id if info.build_id != "unknown" else _label(path)
+    if not tenzir_args:
+        return label
+    return f"{label} {' '.join(tenzir_args)}"
 
 
 def _unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]:
@@ -291,9 +330,11 @@ def _unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]
     return unique
 
 
-def _cache_key(info: BuildInfo, path: Path) -> str:
-    safe_label = re.sub(r"[^A-Za-z0-9._-]", "_", _display_label(info, path))
-    digest = hashlib.sha256(f"{info.path}\0{info.build_id}\0{info.build_type}".encode("utf-8")).hexdigest()[:12]
+def _cache_key(info: BuildInfo, path: Path, tenzir_args: Sequence[str]) -> str:
+    safe_label = re.sub(r"[^A-Za-z0-9._-]", "_", _display_label(info, path, tenzir_args))
+    digest = hashlib.sha256(
+        f"{info.path}\0{build_result_id(info, tenzir_args)}\0{info.build_type}".encode("utf-8"),
+    ).hexdigest()[:12]
     return f"{safe_label}-{digest}"
 
 
