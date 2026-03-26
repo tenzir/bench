@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import yaml
 
+from .fixtures import FixtureSpec
+
 
 class BenchmarkError(Exception):
     """Raised when a benchmark definition is invalid."""
@@ -33,6 +35,7 @@ class BenchmarkDefinition:
     output_path: str | None
     output_measure: bool
     env: dict[str, str]
+    fixtures: tuple[FixtureSpec, ...]
     tenzir_args: list[str]
     runner: str
     runtime: BenchmarkRuntime
@@ -89,6 +92,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     env = benchmark.get("env") or {}
     if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
         raise BenchmarkError(f"{path}: benchmark.env must be a mapping of strings")
+    fixture_specs = _parse_fixture_specs(benchmark, path)
     tenzir_args = benchmark.get("tenzir_args") or []
     if not isinstance(tenzir_args, list) or not all(isinstance(item, str) for item in tenzir_args):
         raise BenchmarkError(f"{path}: benchmark.tenzir_args must be a list of strings")
@@ -125,6 +129,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         output_path=output_path,
         output_measure=output_measure,
         env=dict(env),
+        fixtures=fixture_specs,
         tenzir_args=list(tenzir_args),
         runner=runner,
         runtime=runtime,
@@ -153,3 +158,59 @@ def _require_str(mapping: dict, key: str, path: pathlib.Path) -> str:
     if not isinstance(value, str):
         raise BenchmarkError(f"{path}: benchmark.{key} must be a string")
     return value
+
+
+def _parse_fixture_specs(
+    benchmark: dict,
+    path: pathlib.Path,
+) -> tuple[FixtureSpec, ...]:
+    if "fixture" in benchmark and "fixtures" in benchmark:
+        raise BenchmarkError(f"{path}: benchmark.fixture and benchmark.fixtures are mutually exclusive")
+    if "fixture" in benchmark:
+        return _normalize_fixture_specs(benchmark["fixture"], path)
+    if "fixtures" in benchmark:
+        return _normalize_fixture_specs(benchmark["fixtures"], path)
+    return ()
+
+
+def _normalize_fixture_specs(
+    value: object,
+    path: pathlib.Path,
+) -> tuple[FixtureSpec, ...]:
+    raw: list[object]
+    if isinstance(value, list):
+        raw = value
+    elif isinstance(value, str):
+        raw = [value]
+    elif isinstance(value, dict):
+        raw = [value]
+    else:
+        raise BenchmarkError(
+            f"{path}: benchmark.fixtures must be a string, mapping, or list",
+        )
+
+    specs: list[FixtureSpec] = []
+    for entry in raw:
+        if isinstance(entry, str):
+            name = entry.strip()
+            if not name:
+                raise BenchmarkError(f"{path}: fixture names must be non-empty strings")
+            specs.append(FixtureSpec(name=name))
+            continue
+        if not isinstance(entry, dict):
+            raise BenchmarkError(
+                f"{path}: fixture entries must be strings or mappings, got {type(entry).__name__}",
+            )
+        if len(entry) != 1:
+            raise BenchmarkError(
+                f"{path}: fixture mappings must contain exactly one key, got {list(entry.keys())}",
+            )
+        name, options = next(iter(entry.items()))
+        if not isinstance(name, str) or not name.strip():
+            raise BenchmarkError(f"{path}: fixture names must be non-empty strings")
+        if not isinstance(options, dict):
+            raise BenchmarkError(
+                f"{path}: fixture options for '{name}' must be a mapping",
+            )
+        specs.append(FixtureSpec(name=name.strip(), options=options))
+    return tuple(specs)

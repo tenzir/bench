@@ -26,6 +26,10 @@ benchmark:
     measure: false
   env:
     TENZIR_CONSOLE_FORMAT: none
+  fixtures:
+    - kafka:
+        topic: bench
+    - sink
   tenzir_args:
     - --verbosity
     - info
@@ -40,6 +44,17 @@ benchmark:
 The harness injects `BENCHMARK_INPUT_PATH` and, when `output.path` is defined,
 `BENCHMARK_OUTPUT_PATH`. Paths are relative to the cached datasets produced by
 `bench prepare`.
+
+Fixtures follow the same declaration style as `tenzir/test`: use bare names for
+fixtures without options, or a single-key mapping for structured options. The
+singular alias `benchmark.fixture` is accepted for a single fixture. Fixture
+definitions live in nearby `fixtures.py` modules that are auto-loaded from the
+current working directory down to the benchmark directory.
+
+Fixtures stay active for the full benchmark and may expose `before_run` and
+`after_run` hooks through `tenzir_bench.fixtures.FixtureHandle` to reset state
+between warmup and measurement runs. This is the intended way to keep sources
+like Kafka populated across repeated iterations.
 
 ## Example Pipelines
 

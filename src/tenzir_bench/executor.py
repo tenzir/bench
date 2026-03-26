@@ -10,11 +10,13 @@ import shlex
 import socket
 import subprocess
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
+from . import fixtures as fixture_api
 from .hashing import hash_benchmark, hash_file
 from .paths import BenchPaths
 from .runners import RunnerRegistry
@@ -95,91 +97,91 @@ class BenchmarkExecutor:
         output_root = self._result_dir(context, build)
         output_root.mkdir(parents=True, exist_ok=True)
         self._validate_invocation()
-        env = _benchmark_env(context.definition, context.dataset_path, output_root)
         command = _tenzir_command(
             self.tenzir_bin,
             [*self.tenzir_args, *context.definition.tenzir_args],
             pipeline_path=context.definition.path,
         )
-        self._print_invocation_once(context, env, command)
-        if self.dry_run:
-            _LOG.info("Dry run: validated benchmark %s", context.definition.id)
-            return []
-        results: list[Path] = []
-        total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
-        dynamic_progress = False
-        if not self._progress_planned:
-            self._progress_total = total_runs
-            self._progress_current = 0
-            dynamic_progress = True
-        for warmup in range(context.definition.runtime.warmup_runs):
-            prefix = self._progress_prefix()
-            _LOG.info(
-                "%s Warmup %s/%s for %s",
-                prefix,
-                warmup + 1,
-                context.definition.runtime.warmup_runs,
-                context.definition.id,
-            )
-            _run_once(
-                runner=runner,
-                definition=context.definition,
-                env=env,
-                command=command,
-                binary_args=self.tenzir_args,
-                timeout=context.definition.runtime.timeout_seconds,
-                output_root=output_root,
-                input_path=context.dataset_path,
-                build=build,
-                revision=revision,
-                store_result=False,
-                run_index=-1,
-            )
-        for run_index in range(context.definition.runtime.measurement_runs):
-            prefix = self._progress_prefix()
-            _LOG.info(
-                "%s Measurement %s/%s for %s",
-                prefix,
-                run_index + 1,
-                context.definition.runtime.measurement_runs,
-                context.definition.id,
-            )
-            result = _run_once(
-                runner=runner,
-                definition=context.definition,
-                env=env,
-                command=command,
-                binary_args=self.tenzir_args,
-                timeout=context.definition.runtime.timeout_seconds,
-                output_root=output_root,
-                input_path=context.dataset_path,
-                build=build,
-                revision=revision,
-                store_result=True,
-                run_index=run_index,
-            )
-            if result:
-                results.append(result)
-        if self._progress_planned and self._progress_current >= self._progress_total:
-            self._progress_planned = False
-            self._progress_total = 0
-            self._progress_current = 0
-        elif dynamic_progress:
-            self._progress_total = 0
-            self._progress_current = 0
-        return results
+        with _benchmark_runtime_env(context, output_root) as env:
+            self._print_invocation_once(context, env, command)
+            if self.dry_run:
+                _LOG.info("Dry run: validated benchmark %s", context.definition.id)
+                return []
+            results: list[Path] = []
+            total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
+            dynamic_progress = False
+            if not self._progress_planned:
+                self._progress_total = total_runs
+                self._progress_current = 0
+                dynamic_progress = True
+            for warmup in range(context.definition.runtime.warmup_runs):
+                prefix = self._progress_prefix()
+                _LOG.info(
+                    "%s Warmup %s/%s for %s",
+                    prefix,
+                    warmup + 1,
+                    context.definition.runtime.warmup_runs,
+                    context.definition.id,
+                )
+                _run_once(
+                    runner=runner,
+                    definition=context.definition,
+                    env=env,
+                    command=command,
+                    binary_args=self.tenzir_args,
+                    timeout=context.definition.runtime.timeout_seconds,
+                    output_root=output_root,
+                    input_path=context.dataset_path,
+                    build=build,
+                    revision=revision,
+                    store_result=False,
+                    run_index=warmup,
+                )
+            for run_index in range(context.definition.runtime.measurement_runs):
+                prefix = self._progress_prefix()
+                _LOG.info(
+                    "%s Measurement %s/%s for %s",
+                    prefix,
+                    run_index + 1,
+                    context.definition.runtime.measurement_runs,
+                    context.definition.id,
+                )
+                result = _run_once(
+                    runner=runner,
+                    definition=context.definition,
+                    env=env,
+                    command=command,
+                    binary_args=self.tenzir_args,
+                    timeout=context.definition.runtime.timeout_seconds,
+                    output_root=output_root,
+                    input_path=context.dataset_path,
+                    build=build,
+                    revision=revision,
+                    store_result=True,
+                    run_index=run_index,
+                )
+                if result:
+                    results.append(result)
+            if self._progress_planned and self._progress_current >= self._progress_total:
+                self._progress_planned = False
+                self._progress_total = 0
+                self._progress_current = 0
+            elif dynamic_progress:
+                self._progress_total = 0
+                self._progress_current = 0
+            return results
 
     def validate(self, context: BenchmarkContext) -> None:
         build = self._get_build_info()
         output_root = self._result_dir(context, build)
         self._validate_invocation()
-        env = _benchmark_env(context.definition, context.dataset_path, output_root)
         command = _tenzir_command(
             self.tenzir_bin,
             [*self.tenzir_args, *context.definition.tenzir_args],
             pipeline_path=context.definition.path,
         )
-        self._print_invocation_once(context, env, command)
+        with _benchmark_runtime_env(context, output_root) as env:
+            self._print_invocation_once(context, env, command)
 
     def _print_invocation_once(
         self,
@@ -299,6 +301,31 @@ def _git_revision() -> str | None:
         return None
 
 
+@contextmanager
+def _benchmark_runtime_env(
+    context: BenchmarkContext,
+    output_root: Path,
+) -> Iterable[dict[str, str]]:
+    fixture_api.load_fixture_modules(context.definition.path)
+    env = _benchmark_env(context.definition, context.dataset_path, output_root)
+    token = fixture_api.push_context(
+        fixture_api.FixtureContext(
+            definition=context.definition,
+            dataset_path=context.dataset_path,
+            output_root=output_root,
+            env=dict(env),
+        ),
+    )
+    try:
+        with fixture_api.activate(context.definition.fixtures) as fixture_env:
+            merged = dict(env)
+            merged.update(fixture_env)
+            _refresh_forwarded_env(merged)
+            yield merged
+    finally:
+        fixture_api.pop_context(token)
+
+
 def _run_once(
     runner,
     definition: BenchmarkDefinition,
@@ -319,11 +346,35 @@ def _run_once(
         if output_file.exists():
             output_file.unlink()
     run_env = {**os.environ, **env}
+    phase = "measurement" if store_result else "warmup"
+    fixture_api.invoke_active_hook(
+        "before_run",
+        definition=definition,
+        phase=phase,
+        run_index=run_index,
+        env=run_env,
+        command=tuple(command),
+        input_path=input_path,
+        output_path=output_file,
+    )
+    metrics = None
     try:
         metrics = runner.run(command, env=run_env, timeout=timeout)
     except RuntimeError as exc:
         _LOG.error("Runner failed for %s: %s", definition.id, exc)
         return None
+    finally:
+        fixture_api.invoke_active_hook(
+            "after_run",
+            definition=definition,
+            phase=phase,
+            run_index=run_index,
+            env=run_env,
+            command=tuple(command),
+            input_path=input_path,
+            output_path=output_file,
+            success=metrics is not None,
+        )
     if not store_result:
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
@@ -358,6 +409,10 @@ def _run_once(
         "environment": _environment_snapshot(),
         "command": command,
         "tags": definition.tags,
+        "fixtures": [
+            {"name": fixture.name, "options": fixture.options}
+            for fixture in definition.fixtures
+        ],
         "input": {
             "path": str(input_path),
             "bytes": input_path.stat().st_size,
@@ -432,6 +487,10 @@ def _benchmark_env(
         output_file = output_root / "outputs" / definition.output_path
         output_file.parent.mkdir(parents=True, exist_ok=True)
         env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
-    forward_keys = sorted(env.keys())
-    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
+    _refresh_forwarded_env(env)
     return env
+
+
+def _refresh_forwarded_env(env: dict[str, str]) -> None:
+    forward_keys = sorted(key for key in env if key != "TENZIR_BENCH_FORWARD_ENV")
+    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)

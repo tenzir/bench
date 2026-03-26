@@ -124,7 +124,9 @@ container and streams the benchmark environment variables across.
 Each benchmark is a `.tql` file with YAML frontmatter followed by the pipeline
 body. The harness injects `BENCHMARK_INPUT_PATH` and (when applicable)
 `BENCHMARK_OUTPUT_PATH` so that pipelines can reference staged datasets without
-hard-coded paths.
+hard-coded paths. Benchmarks can also request Python fixtures that provision
+external systems or seed data for integration-style benchmarks such as
+`from_kafka`.
 
 Frontmatter schema:
 
@@ -147,6 +149,11 @@ benchmark:
     measure: false                   # Measure output bytes (input measure must be false)
   env:                               # Extra environment variables for the run (optional)
     TENZIR_CONSOLE_FORMAT: none
+  fixtures:                          # Optional fixture specs (same shapes as tenzir/test)
+    - kafka:
+        topic: bench
+        partitions: 1
+    - sink
   tenzir_args:                       # Extra CLI flags for the Tenzir binary (optional)
     - --verbosity
     - info
@@ -157,6 +164,47 @@ benchmark:
     timeout_seconds: 600             # Per-run timeout (optional)
 ---
 ```
+
+`benchmark.fixture: kafka` is accepted as a shorthand for a single fixture, but
+`fixture` and `fixtures` cannot be used together.
+
+Fixture modules are discovered from `fixtures.py` files between the current
+working directory and the benchmark file. A benchmark under
+`benchmarks/integrations/from-kafka.tql` can therefore use a colocated
+`benchmarks/integrations/fixtures.py`.
+
+Fixture modules use the `tenzir_bench.fixtures` API:
+
+```python
+from dataclasses import dataclass
+
+from tenzir_bench.fixtures import FixtureHandle, current_options, fixture
+
+
+@dataclass(frozen=True)
+class KafkaOptions:
+    topic: str = "bench"
+
+
+@fixture(name="kafka", options=KafkaOptions)
+def kafka_fixture():
+    options = current_options("kafka")
+
+    def before_run(*, phase, run_index, **_kwargs):
+        # Re-seed the topic before every warmup/measurement run.
+        ...
+
+    return FixtureHandle(
+        env={"KAFKA_TOPIC": options.topic},
+        hooks={"before_run": before_run},
+    )
+```
+
+Fixtures stay active for the full benchmark execution and may expose
+`before_run` / `after_run` hooks to reset state between warmup and measurement
+iterations. Fixture-provided environment variables are merged into the benchmark
+environment and forwarded automatically when the benchmark runs inside a Docker
+wrapper via `bench compare`.
 
 To add a new benchmark:
 
