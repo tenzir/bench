@@ -29,6 +29,13 @@ Homepage = "https://github.com/tenzir/tenzir"
 Source = "https://github.com/tenzir/bench"
 Issues = "https://github.com/tenzir/bench/issues"
 
+[dependency-groups]
+dev = [
+  "pytest",
+  "ruff",
+  "ty",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
