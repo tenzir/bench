@@ -13,8 +13,8 @@ ocsf.activity_id = 1 // Create
 ocsf.class_uid = 2004
 ocsf.type_uid = ocsf.class_uid * 100 + ocsf.activity_id
 
-let $severities = [0, 4, 3, 2]
-ocsf.severity_id = $severities[move suricata.alert.severity]
+//let $severities = [0, 4, 3, 2]
+//ocsf.severity_id = $severities[suricata.alert.severity]
 
 // --- OCSF: primary attributes -----------------
 

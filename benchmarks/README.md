@@ -61,6 +61,8 @@ like Kafka populated across repeated iterations.
 - `operators/` contains benchmarks for core Tenzir operators (JSON/KV/CSV
   parsing, filtering, sorting, summarizing, deduplication).
 - `examples/` hosts smaller micro-benchmarks for quick sanity checks.
+- `integrations/` contains fixture-backed benchmarks for external systems such
+  as Kafka.
 
 ## Adding New Benchmarks
 

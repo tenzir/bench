@@ -35,7 +35,7 @@ if suricata.dns.has("answers") {
   })
 }
 
-if suricata.dns.has("rcode") {
+if suricata.dns.has("rcode") and suricata.dns.rcode != null {
   let $rcode_id = {
     NOERROR: 0,
     FORMERROR: 1,

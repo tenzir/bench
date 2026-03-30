@@ -206,6 +206,9 @@ iterations. Fixture-provided environment variables are merged into the benchmark
 environment and forwarded automatically when the benchmark runs inside a Docker
 wrapper via `bench compare`.
 
+This repository now ships a concrete Kafka fixture and example benchmark under
+`benchmarks/integrations/` for `from_kafka` scenarios.
+
 To add a new benchmark:
 
 1. Create `benchmark/benchmarks/<category>/<id>.tql` with the required
