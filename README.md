@@ -31,6 +31,10 @@ bench run
 
 Use `bench run path/to/pipeline.tql` to target a specific scenario.
 
+Use `--dry-run --verbose` to print the resolved invocation without probing the
+Tenzir binary or starting fixtures. Use `--validate` when you want the full
+validation behavior.
+
 ### `bench sync`
 
 Download the reference results from the central location (s3). By default, the
@@ -106,6 +110,9 @@ bench compare <path/to/baseline/bin/tenzir> <path/to/under-test/bin/tenzir> --co
 The compact output mode summarizes wall-clock time and peak RSS of the fastest
 run per pipeline in a compact table. Without `--compact`, the command prints a
 more detailed view that also shows the staged report source paths.
+
+Use `--dry-run --verbose` to print the resolved invocations for each build
+without starting Tenzir or any benchmark fixtures.
 
 For quick experiments you can point to Docker images as build candidates by
 prefixing them with `docker://`, e.g.

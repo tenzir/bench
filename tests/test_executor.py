@@ -209,3 +209,73 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual([event for event in events if event[0] == "options"], [("options", "bench", -1)])
         output = stdout.getvalue()
         self.assertIn("DEMO_FIXTURE=fixture-bench", output)
+
+    def test_dry_run_prints_without_validation_or_fixtures(self) -> None:
+        @fixture_api.fixture(name="explode-dry-run", replace=True)
+        def _explode_fixture():
+            raise AssertionError("fixture activation should be skipped")
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                paths = BenchPaths(
+                    dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                    ensure_dir=_ensure,
+                    cache_root=root / "cache",
+                    state_root=root / "state",
+                )
+                dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
+                dataset.parent.mkdir(parents=True, exist_ok=True)
+                dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
+                definition = BenchmarkDefinition(
+                    path=root / "benchmarks" / "operators" / "dry-run.tql",
+                    id="dry-run",
+                    description=None,
+                    tags={},
+                    min_version=None,
+                    max_version=None,
+                    input_path="suricata/eve.json",
+                    input_events=1,
+                    input_measure=True,
+                    output_path=None,
+                    output_measure=False,
+                    env={"TENZIR_CONSOLE_FORMAT": "none"},
+                    fixtures=(fixture_api.FixtureSpec(name="explode-dry-run"),),
+                    tenzir_args=["--neo"],
+                    runner="time",
+                    runtime=BenchmarkRuntime(warmup_runs=1, measurement_runs=1, timeout_seconds=10),
+                    pipeline_body="discard",
+                )
+                definition.path.parent.mkdir(parents=True, exist_ok=True)
+                definition.path.write_text("discard\n", encoding="utf-8")
+                runner = FakeRunner()
+                executor = BenchmarkExecutor(
+                    paths,
+                    Path("/tmp/tenzir-link"),
+                    RunnerRegistry([runner]),
+                    tenzir_args=("--global-flag",),
+                    dry_run=True,
+                    verbose=True,
+                )
+                context = executor.create_context(definition)
+                assert context is not None
+
+                stdout = io.StringIO()
+                with (
+                    patch("tenzir_bench.executor._detect_build") as detect_build,
+                    patch.object(BenchmarkExecutor, "_validate_invocation") as validate_invocation,
+                    patch("tenzir_bench.executor._LOG.info"),
+                    redirect_stdout(stdout),
+                ):
+                    reports = executor.execute(context)
+                    executor.validate(context)
+        finally:
+            fixture_api._FACTORIES.pop("explode-dry-run", None)  # type: ignore[attr-defined]
+
+        self.assertEqual(reports, [])
+        self.assertEqual(runner.calls, [])
+        detect_build.assert_not_called()
+        validate_invocation.assert_not_called()
+        output = stdout.getvalue()
+        self.assertIn("BENCHMARK_INPUT_PATH=", output)
+        self.assertNotIn("explode-dry-run", output)

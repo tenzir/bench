@@ -54,6 +54,7 @@ def run_compare(
     compact: bool,
     benchmark_dirs: Sequence[Path],
     *,
+    validate: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
@@ -64,6 +65,7 @@ def run_compare(
         baseline_bin,
         registry,
         tenzir_args=baseline_args,
+        validate=validate,
         dry_run=dry_run,
         verbose=verbose,
     )
@@ -71,10 +73,6 @@ def run_compare(
     if not contexts:
         _LOG.error("No benchmarks found to execute")
         return
-
-    compare_root = paths.results_state_dir / "compare"
-    shutil.rmtree(compare_root, ignore_errors=True)
-    compare_root.mkdir(parents=True, exist_ok=True)
 
     targets = [(baseline_bin, baseline_force, baseline_args, baseline_executor)]
     for candidate_bin, candidate_force, candidate_args in binaries[1:]:
@@ -87,10 +85,19 @@ def run_compare(
                 candidate_bin,
                 registry,
                 tenzir_args=candidate_args,
+                validate=validate,
                 dry_run=dry_run,
                 verbose=verbose,
             ),
         ))
+    if dry_run:
+        for _binary, _force, _tenzir_args, executor in targets:
+            for context in contexts:
+                executor.validate(context)
+        return
+    compare_root = paths.results_state_dir / "compare"
+    shutil.rmtree(compare_root, ignore_errors=True)
+    compare_root.mkdir(parents=True, exist_ok=True)
     infos = [executor._get_build_info() for _, _, _, executor in targets]  # type: ignore[attr-defined]
     labels = _unique_labels(
         [
@@ -102,7 +109,7 @@ def run_compare(
     prepared_dirs: list[tuple[str, Path]] = []
     for (binary, force, tenzir_args, executor), info, label in zip(targets, infos, labels, strict=True):
         compare_dir = compare_root / _cache_key(info, binary, tenzir_args)
-        if dry_run:
+        if validate:
             for context in contexts:
                 executor.validate(context)
             prepared_dirs.append((label, compare_dir))
@@ -110,7 +117,7 @@ def run_compare(
         _ensure_reports(executor, contexts, compare_dir, force)
         prepared_dirs.append((label, compare_dir))
 
-    if dry_run:
+    if validate:
         return
 
     baseline_label, baseline_dir = prepared_dirs[0]

@@ -40,6 +40,7 @@ class BenchmarkExecutor:
         runner_registry: RunnerRegistry,
         tenzir_args: Sequence[str] = (),
         *,
+        validate: bool = False,
         dry_run: bool = False,
         verbose: bool = False,
     ) -> None:
@@ -47,6 +48,7 @@ class BenchmarkExecutor:
         self.tenzir_bin = tenzir_bin
         self.tenzir_args = tuple(tenzir_args)
         self.runners = runner_registry
+        self.validate_only = validate
         self.dry_run = dry_run
         self.verbose = verbose
         self._build_info: BuildInfo | None = None
@@ -91,6 +93,10 @@ class BenchmarkExecutor:
         self._progress_planned = total > 0
 
     def execute(self, context: BenchmarkContext) -> list[Path]:
+        if self.dry_run:
+            self._print_dry_run_invocation(context)
+            _LOG.info("Dry run: resolved benchmark %s", context.definition.id)
+            return []
         runner = self.runners.get(context.definition.runner)
         build = self._get_build_info()
         revision = _git_revision()
@@ -104,8 +110,8 @@ class BenchmarkExecutor:
         )
         with _benchmark_runtime_env(context, output_root) as env:
             self._print_invocation_once(context, env, command)
-            if self.dry_run:
-                _LOG.info("Dry run: validated benchmark %s", context.definition.id)
+            if self.validate_only:
+                _LOG.info("Validate: validated benchmark %s", context.definition.id)
                 return []
             results: list[Path] = []
             total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
@@ -172,6 +178,9 @@ class BenchmarkExecutor:
             return results
 
     def validate(self, context: BenchmarkContext) -> None:
+        if self.dry_run:
+            self._print_dry_run_invocation(context)
+            return
         build = self._get_build_info()
         output_root = self._result_dir(context, build)
         self._validate_invocation()
@@ -219,6 +228,24 @@ class BenchmarkExecutor:
             raise RuntimeError(f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}") from exc
         self._validated_invocation = True
 
+    def _print_dry_run_invocation(self, context: BenchmarkContext) -> None:
+        if context.definition.fixtures:
+            _LOG.info(
+                "Dry run skips fixture activation for %s",
+                context.definition.id,
+            )
+        env = _benchmark_env(
+            context.definition,
+            context.dataset_path,
+            self._dry_run_result_dir(context),
+        )
+        command = _tenzir_command(
+            self.tenzir_bin,
+            [*self.tenzir_args, *context.definition.tenzir_args],
+            pipeline_path=context.definition.path,
+        )
+        self._print_invocation_once(context, env, command)
+
     def _progress_prefix(self) -> str:
         if self._progress_total <= 0:
             return ""
@@ -232,6 +259,15 @@ class BenchmarkExecutor:
             / context.benchmark_hash
             / context.input_hash
             / build_result_id(build, self.tenzir_args)
+            / context.definition.runner
+        )
+
+    def _dry_run_result_dir(self, context: BenchmarkContext) -> Path:
+        return (
+            self.paths.results_state_dir
+            / context.benchmark_hash
+            / context.input_hash
+            / "dry-run"
             / context.definition.runner
         )
 

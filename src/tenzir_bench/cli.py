@@ -51,7 +51,12 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
 @click.option("--tenzir-bin", type=click.Path(path_type=Path), help="Path to the Tenzir binary.")
-@click.option("--dry-run", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option("--validate", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print resolved benchmark invocations without validating them.",
+)
 @click.option("--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form.")
 @click.argument("tenzir_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
@@ -59,12 +64,14 @@ def run(
     paths: BenchPaths,
     pattern: str | None,
     tenzir_bin: Path | None,
+    validate: bool,
     dry_run: bool,
     verbose: bool,
     tenzir_args: Sequence[str],
 ) -> None:
     """Execute benchmarks and record reports."""
     try:
+        _validate_mode_flags(validate, dry_run)
         tenzir = tenzir_bin or _resolve_tenzir()
         registry = RunnerRegistry()
         executor = BenchmarkExecutor(
@@ -72,6 +79,7 @@ def run(
             tenzir,
             registry,
             tenzir_args=tenzir_args,
+            validate=validate,
             dry_run=dry_run,
             verbose=verbose,
         )
@@ -120,13 +128,19 @@ def publish(paths: BenchPaths, runs: Path | None, destination: str, force: bool)
 
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
-@click.option("--dry-run", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option("--validate", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Print resolved benchmark invocations without validating them.",
+)
 @click.option("--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form.")
 @click.argument("arguments", nargs=-1, metavar="PATH")
 @click.pass_obj
 def compare(
     bench_paths: BenchPaths,
     compact: bool,
+    validate: bool,
     dry_run: bool,
     verbose: bool,
     arguments: Sequence[str],
@@ -145,9 +159,18 @@ def compare(
     values must use the `--option=value` form.
     """
     try:
+        _validate_mode_flags(validate, dry_run)
         binaries, benchmark_dirs = _parse_compare_arguments(arguments)
         resolved = resolve_binaries(bench_paths, binaries)
-        run_compare(bench_paths, resolved, compact, benchmark_dirs, dry_run=dry_run, verbose=verbose)
+        run_compare(
+            bench_paths,
+            resolved,
+            compact,
+            benchmark_dirs,
+            validate=validate,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -161,6 +184,11 @@ def _resolve_tenzir() -> Path:
     if not resolved:
         raise click.ClickException("Unable to locate 'tenzir' executable; specify --tenzir-bin")
     return Path(resolved)
+
+
+def _validate_mode_flags(validate: bool, dry_run: bool) -> None:
+    if validate and dry_run:
+        raise click.BadParameter("--validate and --dry-run are mutually exclusive")
 
 
 def _parse_compare_arguments(
