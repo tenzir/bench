@@ -139,9 +139,6 @@ def _ensure_reports(
     contexts = list(contexts)
     build = executor._get_build_info()  # type: ignore[attr-defined]
     if not force:
-        if output_dir.exists() and any(output_dir.rglob("*.json")):
-            _LOG.info("Reusing cached reports in %s", output_dir)
-            return output_dir
         collected: list[tuple[BenchmarkContext, Path]] = []
         for context in contexts:
             run_dir = executor._result_dir(context, build)  # type: ignore[attr-defined]
