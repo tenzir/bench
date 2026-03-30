@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shlex
+import shutil
 import socket
 import subprocess
 from collections.abc import Iterable, Sequence
@@ -91,6 +92,31 @@ class BenchmarkExecutor:
         self._progress_total = total
         self._progress_current = 0
         self._progress_planned = total > 0
+
+    def build_info(self) -> BuildInfo:
+        return self._get_build_info()
+
+    def ensure_reports(
+        self,
+        contexts: Iterable[BenchmarkContext],
+        output_dir: Path,
+        *,
+        force: bool,
+    ) -> Path:
+        contexts = list(contexts)
+        build = self.build_info()
+        if not force:
+            collected = self._collect_cached_reports(contexts, build)
+            if collected:
+                _LOG.info("Reusing cached reports from state cache for %s", self.tenzir_bin)
+                return self._stage_reports(output_dir, build, collected)
+        reports_generated: list[tuple[BenchmarkContext, Path]] = []
+        if contexts:
+            self.prepare_progress(contexts)
+        for context in contexts:
+            generated = self.execute(context)
+            reports_generated.extend((context, report) for report in generated)
+        return self._stage_reports(output_dir, build, reports_generated)
 
     def execute(self, context: BenchmarkContext) -> list[Path]:
         if self.dry_run:
@@ -261,6 +287,31 @@ class BenchmarkExecutor:
             / build_result_id(build, self.tenzir_args)
             / context.definition.runner
         )
+
+    def _collect_cached_reports(
+        self,
+        contexts: Sequence[BenchmarkContext],
+        build: BuildInfo,
+    ) -> list[tuple[BenchmarkContext, Path]]:
+        collected: list[tuple[BenchmarkContext, Path]] = []
+        for context in contexts:
+            run_dir = self._result_dir(context, build)
+            collected.extend((context, report) for report in run_dir.glob("*.json"))
+        return collected
+
+    def _stage_reports(
+        self,
+        output_dir: Path,
+        build: BuildInfo,
+        reports: Sequence[tuple[BenchmarkContext, Path]],
+    ) -> Path:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for context, report in reports:
+            target = _staged_report_path(self.paths, output_dir, context, build, report)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(report, target)
+        return output_dir
 
     def _dry_run_result_dir(self, context: BenchmarkContext) -> Path:
         return (
@@ -495,6 +546,28 @@ def build_result_id(build: BuildInfo, tenzir_args: Sequence[str]) -> str:
         return build.build_id
     digest = hashlib.sha256("\0".join(tenzir_args).encode("utf-8")).hexdigest()[:12]
     return f"{build.build_id}-{digest}"
+
+
+def _staged_report_path(
+    paths: BenchPaths,
+    output_dir: Path,
+    context: BenchmarkContext,
+    build: BuildInfo,
+    report: Path,
+) -> Path:
+    try:
+        relative = report.relative_to(paths.results_state_dir)
+    except ValueError:
+        relative = Path(
+            context.benchmark_hash,
+            context.input_hash,
+            build.build_id,
+            context.definition.runner,
+            report.name,
+        )
+    target = output_dir / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
 
 
 def _tenzir_command(

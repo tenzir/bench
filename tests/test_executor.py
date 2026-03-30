@@ -39,6 +39,66 @@ class FakeRunner(Runner):
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_ensure_reports_stages_generated_reports(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
+            dataset.parent.mkdir(parents=True, exist_ok=True)
+            dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
+            definition = BenchmarkDefinition(
+                path=Path("benchmarks/operators/example.tql"),
+                id="example-benchmark",
+                description=None,
+                tags={},
+                min_version=None,
+                max_version=None,
+                input_path="suricata/eve.json",
+                input_events=1,
+                input_measure=True,
+                output_path=None,
+                output_measure=False,
+                env={},
+                fixtures=(),
+                tenzir_args=[],
+                runner="time",
+                runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+                pipeline_body="discard",
+            )
+            executor = BenchmarkExecutor(
+                paths,
+                Path("/tmp/tenzir-link"),
+                RunnerRegistry([FakeRunner()]),
+            )
+            context = executor.create_context(definition)
+            assert context is not None
+            report = root / "generated" / "report.json"
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("{}", encoding="utf-8")
+            output_dir = root / "staged"
+
+            with (
+                patch("tenzir_bench.executor._detect_build", return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir")),
+                patch.object(executor, "execute", return_value=[report]) as execute,
+            ):
+                staged_dir = executor.ensure_reports((context,), output_dir, force=True)
+                expected = (
+                    staged_dir
+                    / context.benchmark_hash
+                    / context.input_hash
+                    / "v1.2.3"
+                    / context.definition.runner
+                    / "report.json"
+                )
+                execute.assert_called_once_with(context)
+                self.assertEqual(staged_dir, output_dir)
+                self.assertTrue(expected.exists())
+
     def test_verbose_prints_command_once_per_benchmark(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

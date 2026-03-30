@@ -7,12 +7,12 @@ import logging
 import re
 import shlex
 import shutil
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from textwrap import dedent
 
 from .definitions import BenchmarkError, parse_benchmark_file
-from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo, build_result_id
+from .executor import BenchmarkExecutor, BuildInfo, build_result_id
 from .paths import BenchPaths
 from .reports import Report, load_reports, select_fastest
 from .runners import RunnerRegistry
@@ -98,7 +98,7 @@ def run_compare(
     compare_root = paths.results_state_dir / "compare"
     shutil.rmtree(compare_root, ignore_errors=True)
     compare_root.mkdir(parents=True, exist_ok=True)
-    infos = [executor._get_build_info() for _, _, _, executor in targets]  # type: ignore[attr-defined]
+    infos = [executor.build_info() for _, _, _, executor in targets]
     labels = _unique_labels(
         [
             _display_label(info, binary, tenzir_args)
@@ -114,7 +114,7 @@ def run_compare(
                 executor.validate(context)
             prepared_dirs.append((label, compare_dir))
             continue
-        _ensure_reports(executor, contexts, compare_dir, force)
+        executor.ensure_reports(contexts, compare_dir, force=force)
         prepared_dirs.append((label, compare_dir))
 
     if validate:
@@ -128,44 +128,6 @@ def run_compare(
         _render_compact_table(baseline_label, baseline_reports, candidate_reports)
     else:
         _render_detailed(baseline_label, baseline_reports, candidate_reports)
-
-
-def _ensure_reports(
-    executor: BenchmarkExecutor,
-    contexts: Iterable[BenchmarkContext],
-    output_dir: Path,
-    force: bool,
-) -> Path:
-    contexts = list(contexts)
-    build = executor._get_build_info()  # type: ignore[attr-defined]
-    if not force:
-        collected: list[tuple[BenchmarkContext, Path]] = []
-        for context in contexts:
-            run_dir = executor._result_dir(context, build)  # type: ignore[attr-defined]
-            collected.extend((context, report) for report in run_dir.glob("*.json"))
-        if collected:
-            _LOG.info("Reusing cached reports from state cache for %s", executor.tenzir_bin)
-            shutil.rmtree(output_dir, ignore_errors=True)
-            output_dir.mkdir(parents=True, exist_ok=True)
-            for context, report in collected:
-                target = _staged_report_path(executor.paths, output_dir, context, build, report)
-                shutil.copy2(report, target)
-            return output_dir
-    shutil.rmtree(output_dir, ignore_errors=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    reports_generated: list[tuple[BenchmarkContext, Path]] = []
-    if contexts:
-        executor.prepare_progress(contexts)
-    for context in contexts:
-        generated = executor.execute(context)
-        reports_generated.extend((context, report) for report in generated)
-    if not reports_generated:
-        return output_dir
-    for context, report in reports_generated:
-        target = _staged_report_path(executor.paths, output_dir, context, build, report)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(report, target)
-    return output_dir
 
 
 def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> Iterable:
@@ -340,28 +302,6 @@ def _cache_key(info: BuildInfo, path: Path, tenzir_args: Sequence[str]) -> str:
         f"{info.path}\0{build_result_id(info, tenzir_args)}\0{info.build_type}".encode("utf-8"),
     ).hexdigest()[:12]
     return f"{safe_label}-{digest}"
-
-
-def _staged_report_path(
-    paths: BenchPaths,
-    output_dir: Path,
-    context: BenchmarkContext,
-    build: BuildInfo,
-    report: Path,
-) -> Path:
-    try:
-        relative = report.relative_to(paths.results_state_dir)
-    except ValueError:
-        relative = Path(
-            context.benchmark_hash,
-            context.input_hash,
-            build.build_id,
-            context.definition.runner,
-            report.name,
-        )
-    target = output_dir / relative
-    target.parent.mkdir(parents=True, exist_ok=True)
-    return target
 
 
 def _ensure_docker_wrapper(paths: BenchPaths, image: str) -> Path:
