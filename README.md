@@ -18,18 +18,40 @@ bench prepare
 
 The command can be re-run; add `--force` to refresh downloads.
 
-### `bench run`
+### `tenzir-bench run`
 
-Execute the benchmark suite or an individual pipeline. The command discovers
-`.tql` files under `benchmarks/`, stages datasets from the cached dataset
-store, and records per-run JSON reports under the state directory (for example,
-`~/.local/state/tenzir-bench/results`).
+Execute the benchmark suite or selected spec benchmarks. After publishing to
+PyPI, the intended UX is to run the harness directly with `uvx`:
 
 ```bash
-bench run
+uvx tenzir-bench run --tenzir-bin /path/to/tenzir --benchmark from_kafka_route53
 ```
 
-Use `bench run path/to/pipeline.tql` to target a specific scenario.
+The command auto-detects the repo root by looking for a checkout that contains
+`bench/`, starting from the current directory and then from the `--tenzir-bin`
+path. It discovers benchmarks under `bench/`, automatically stages any
+repo-local `input.source` files into the cache, activates declared fixtures,
+and records per-run JSON reports under the state directory (for example,
+`~/.local/state/tenzir-bench/results`).
+
+To run the default set from the repo root:
+
+```bash
+uvx tenzir-bench run --tenzir-bin ./build/bin/tenzir
+```
+
+To run a subset:
+
+```bash
+uvx tenzir-bench run --tenzir-bin /path/to/tenzir --benchmark from_kafka_route53
+uvx tenzir-bench run --tenzir-bin /path/to/tenzir --benchmark 'from_kafka_*'
+```
+
+When developing locally before publishing, use:
+
+```bash
+uvx --from /path/to/bench tenzir-bench run --tenzir-bin /path/to/tenzir --benchmark from_kafka_route53
+```
 
 Use `--dry-run --verbose` to print the resolved invocation without probing the
 Tenzir binary or starting fixtures. Use `--validate` when you want the full
@@ -149,6 +171,7 @@ benchmark:
   max_version: "6.0.0"               # Maximum Tenzir version allowed (optional)
   input:                             # Input dataset configuration (required)
     path: suricata/eve.json          # Relative to the managed dataset cache unless absolute
+    source: ../../test/tests/...     # Optional repo-local path or HTTP(S) URL copied into the cache automatically
     events: 984865                   # Optional record count for throughput stats
     measure: true                    # Use input bytes for throughput (boolean)
   output:                            # Optional output measurement settings

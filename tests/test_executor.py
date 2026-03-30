@@ -5,6 +5,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
 from unittest.mock import patch
+import urllib.request
 
 from tenzir_bench import fixtures as fixture_api
 from platformdirs import PlatformDirs
@@ -39,6 +40,100 @@ class FakeRunner(Runner):
 
 
 class ExecutorTest(unittest.TestCase):
+    def test_create_context_stages_local_input_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            benchmark_dir = root / "bench" / "from_kafka_route53"
+            benchmark_dir.mkdir(parents=True, exist_ok=True)
+            source = root / "test" / "tests" / "perf" / "from_kafka_1m" / "route53_sample.ndjson"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('{"event_type":"flow"}\n', encoding="utf-8")
+            definition = BenchmarkDefinition(
+                path=benchmark_dir / "neo-discard.tql",
+                id="from_kafka_route53/neo-discard",
+                description=None,
+                tags={},
+                min_version=None,
+                max_version=None,
+                input_path="perf/route53_sample.ndjson",
+                input_source="../../test/tests/perf/from_kafka_1m/route53_sample.ndjson",
+                input_events=1,
+                input_measure=True,
+                output_path=None,
+                output_measure=False,
+                env={},
+                fixtures=(),
+                tenzir_args=[],
+                runner="time",
+                runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+                pipeline_body="discard",
+            )
+            executor = BenchmarkExecutor(
+                paths,
+                Path("/tmp/tenzir-link"),
+                RunnerRegistry([FakeRunner()]),
+            )
+
+            context = executor.create_context(definition)
+
+            assert context is not None
+            self.assertEqual(context.dataset_path.read_text(encoding="utf-8"), '{"event_type":"flow"}\n')
+            self.assertTrue((paths.datasets_cache_dir / "perf" / "route53_sample.ndjson").exists())
+
+    def test_create_context_downloads_remote_input_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            benchmark_dir = root / "bench" / "from_kafka_route53"
+            benchmark_dir.mkdir(parents=True, exist_ok=True)
+            definition = BenchmarkDefinition(
+                path=benchmark_dir / "neo-discard.tql",
+                id="from_kafka_route53/neo-discard",
+                description=None,
+                tags={},
+                min_version=None,
+                max_version=None,
+                input_path="cloudwatch/route53.ndjson",
+                input_source="https://datasets.tenzir.tools/CloudWatch/route53.ndjson",
+                input_events=2,
+                input_measure=True,
+                output_path=None,
+                output_measure=False,
+                env={},
+                fixtures=(),
+                tenzir_args=[],
+                runner="time",
+                runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+                pipeline_body="discard",
+            )
+            executor = BenchmarkExecutor(
+                paths,
+                Path("/tmp/tenzir-link"),
+                RunnerRegistry([FakeRunner()]),
+            )
+            payload = b'{"event_type":"flow"}\n{"event_type":"dns"}\n'
+
+            with patch("tenzir_bench.executor.urllib.request.urlopen", return_value=io.BytesIO(payload)) as urlopen:
+                context = executor.create_context(definition)
+
+            assert context is not None
+            self.assertEqual(context.dataset_path.read_bytes(), payload)
+            self.assertTrue((paths.datasets_cache_dir / "cloudwatch" / "route53.ndjson").exists())
+            request = urlopen.call_args.args[0]
+            self.assertIsInstance(request, urllib.request.Request)
+            self.assertEqual(request.full_url, "https://datasets.tenzir.tools/CloudWatch/route53.ndjson")
+
     def test_ensure_reports_stages_generated_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -59,6 +154,7 @@ class ExecutorTest(unittest.TestCase):
                 min_version=None,
                 max_version=None,
                 input_path="suricata/eve.json",
+                input_source=None,
                 input_events=1,
                 input_measure=True,
                 output_path=None,
@@ -119,6 +215,7 @@ class ExecutorTest(unittest.TestCase):
                 min_version=None,
                 max_version=None,
                 input_path="suricata/eve.json",
+                input_source=None,
                 input_events=1,
                 input_measure=True,
                 output_path=None,
@@ -203,6 +300,7 @@ class ExecutorTest(unittest.TestCase):
                     min_version=None,
                     max_version=None,
                     input_path="suricata/eve.json",
+                    input_source=None,
                     input_events=1,
                     input_measure=True,
                     output_path=None,
@@ -295,6 +393,7 @@ class ExecutorTest(unittest.TestCase):
                     min_version=None,
                     max_version=None,
                     input_path="suricata/eve.json",
+                    input_source=None,
                     input_events=1,
                     input_measure=True,
                     output_path=None,

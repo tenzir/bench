@@ -249,6 +249,7 @@ def _parse_spec_implementation(
     if not isinstance(input_section, dict):
         raise BenchmarkError(f"{path}: bench.yaml input must be a mapping")
     input_path = _require_str(input_section, "path", path, prefix="input")
+    input_source = _optional_str(input_section, "source", path, prefix="input")
     input_events = input_section.get("events")
     if input_events is not None and not isinstance(input_events, int):
         raise BenchmarkError(f"{path}: input.events must be an integer")
@@ -284,6 +285,7 @@ def _parse_spec_implementation(
         min_version=min_version,
         max_version=max_version,
         input_path=input_path,
+        input_source=input_source,
         input_events=input_events,
         input_measure=input_measure,
         output_path=output_path,

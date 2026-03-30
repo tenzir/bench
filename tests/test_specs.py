@@ -18,6 +18,7 @@ class SpecsTest(unittest.TestCase):
 description: Kafka ingest
 input:
   path: suricata/eve.json
+  source: ../../fixtures/eve.json
   events: 1
   measure: true
 """,
@@ -56,6 +57,7 @@ discard
         self.assertEqual(definitions[0].benchmark_id, "from_kafka_1m")
         self.assertEqual(definitions[0].implementation_id, "neo")
         self.assertEqual(definitions[0].tenzir_args, ["--neo"])
+        self.assertEqual(definitions[0].input_source, "../../fixtures/eve.json")
 
     def test_load_definitions_from_paths_keeps_all_compatible_implementations(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

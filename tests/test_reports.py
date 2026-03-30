@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tenzir_bench.reports import load_reports, matches_identifier
+from tenzir_bench.reports import load_report, load_reports, matches_identifier
 
 
 def _write_report(root: Path, artifact_id: str, pipeline: str) -> None:
@@ -48,3 +48,15 @@ class ReportsTest(unittest.TestCase):
         report = reports["from_kafka_1m/neo"][0]
         self.assertEqual(report.benchmark_id, "from_kafka_1m")
         self.assertEqual(report.implementation_id, "neo")
+
+    def test_load_report_reads_single_report_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_report(root, "v1.2.3", "from_kafka_1m/neo")
+            report_path = next(root.rglob("*.json"))
+
+            report = load_report(report_path, artifact_id="v1.2.3")
+
+        assert report is not None
+        self.assertEqual(report.pipeline, "from_kafka_1m/neo")
+        self.assertEqual(report.artifact_id, "v1.2.3")

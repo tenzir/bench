@@ -10,6 +10,8 @@ import shlex
 import shutil
 import socket
 import subprocess
+import urllib.parse
+import urllib.request
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -60,11 +62,12 @@ class BenchmarkExecutor:
         self._printed_commands: set[tuple[str, tuple[str, ...]]] = set()
         self._validated_invocation = False
 
-    def discover(self, pattern: str | None) -> Iterable[BenchmarkContext]:
+    def discover(self, pattern: str | None, *, root: Path | None = None) -> Iterable[BenchmarkContext]:
         try:
             definitions = discover_definitions(
                 pattern,
                 version_supplier=lambda: self._get_build_info().version,
+                root=root,
             )
         except BenchmarkError as exc:
             _LOG.error("%s", exc)
@@ -75,7 +78,7 @@ class BenchmarkExecutor:
                 yield context
 
     def create_context(self, definition: BenchmarkDefinition) -> BenchmarkContext | None:
-        dataset = (self.paths.datasets_cache_dir / definition.input_path).resolve()
+        dataset = self._ensure_dataset(definition)
         if not dataset.exists():
             _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
             return None
@@ -85,6 +88,34 @@ class BenchmarkExecutor:
             benchmark_hash=hash_benchmark(definition),
             input_hash=hash_file(dataset),
         )
+
+    def _ensure_dataset(self, definition: BenchmarkDefinition) -> Path:
+        input_path = Path(definition.input_path).expanduser()
+        if input_path.is_absolute():
+            return input_path.resolve()
+        dataset = (self.paths.datasets_cache_dir / input_path).resolve()
+        if dataset.exists() or definition.input_source is None:
+            return dataset
+        dataset.parent.mkdir(parents=True, exist_ok=True)
+        source_value = definition.input_source.strip()
+        parsed = urllib.parse.urlparse(source_value)
+        if parsed.scheme in {"http", "https"}:
+            request = urllib.request.Request(
+                source_value,
+                headers={"User-Agent": "tenzir-bench/0.1"},
+            )
+            with urllib.request.urlopen(request) as response, dataset.open("wb") as handle:
+                shutil.copyfileobj(response, handle)
+            return dataset
+        source = Path(source_value).expanduser()
+        if not source.is_absolute():
+            source = (definition.path.parent / source).resolve()
+        else:
+            source = source.resolve()
+        if not source.exists():
+            return dataset
+        shutil.copy2(source, dataset)
+        return dataset
 
     def prepare_progress(self, contexts: Sequence[BenchmarkContext]) -> None:
         total = sum(

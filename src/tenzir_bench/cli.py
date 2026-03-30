@@ -11,11 +11,14 @@ import click
 
 from .compare import resolve_binaries, run_compare
 from .datasets import DatasetManager
+from .definitions import BenchmarkDefinition
 from .evaluation import evaluate as evaluate_results
 from .executor import BenchmarkExecutor
 from .paths import BenchPaths
 from .publisher import Publisher
+from .reports import Report, load_report, select_fastest
 from .runners import RunnerRegistry
+from .specs import discover_definitions
 from .syncer import sync as sync_results
 
 _LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
@@ -50,6 +53,12 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
+@click.option(
+    "--benchmark",
+    "benchmarks",
+    multiple=True,
+    help="Benchmark id, glob, file, or directory to run. Repeat to select multiple.",
+)
 @click.option("--tenzir-bin", type=click.Path(path_type=Path), help="Path to the Tenzir binary.")
 @click.option("--validate", is_flag=True, help="Validate benchmark commands without executing them.")
 @click.option(
@@ -63,6 +72,7 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 def run(
     paths: BenchPaths,
     pattern: str | None,
+    benchmarks: tuple[str, ...],
     tenzir_bin: Path | None,
     validate: bool,
     dry_run: bool,
@@ -72,6 +82,8 @@ def run(
     """Execute benchmarks and record reports."""
     try:
         _validate_mode_flags(validate, dry_run)
+        if pattern and benchmarks:
+            raise click.BadParameter("--filter and --benchmark are mutually exclusive")
         tenzir = tenzir_bin or _resolve_tenzir()
         registry = RunnerRegistry()
         executor = BenchmarkExecutor(
@@ -83,11 +95,27 @@ def run(
             dry_run=dry_run,
             verbose=verbose,
         )
-        contexts = list(executor.discover(pattern))
-        if contexts:
-            executor.prepare_progress(contexts)
-            for context in contexts:
-                executor.execute(context)
+        root = _detect_repo_root(tenzir)
+        contexts = _load_contexts(
+            executor,
+            root=root,
+            pattern=pattern,
+            benchmarks=benchmarks,
+        )
+        if not contexts:
+            build_version = executor.build_info().version or "unknown"
+            click.echo(
+                "No runnable benchmarks matched the selection "
+                f"for Tenzir build {build_version}. Check benchmark selectors "
+                "and min_version/max_version constraints.",
+            )
+            return
+        generated_reports: list[Path] = []
+        executor.prepare_progress(contexts)
+        for context in contexts:
+            generated_reports.extend(executor.execute(context))
+        if generated_reports and not validate and not dry_run:
+            _print_run_summary(generated_reports)
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -189,6 +217,111 @@ def _resolve_tenzir() -> Path:
 def _validate_mode_flags(validate: bool, dry_run: bool) -> None:
     if validate and dry_run:
         raise click.BadParameter("--validate and --dry-run are mutually exclusive")
+
+
+def _detect_repo_root(tenzir: Path) -> Path:
+    for start in (Path.cwd().resolve(), tenzir.resolve()):
+        if root := _find_repo_root(start):
+            return root
+    raise click.ClickException(
+        "Unable to locate a repository root containing bench/. "
+        "Run the command from a tenzir checkout or point --tenzir-bin at a binary inside one.",
+    )
+
+
+def _find_repo_root(start: Path) -> Path | None:
+    current = start if start.is_dir() else start.parent
+    for candidate in (current, *current.parents):
+        if (candidate / "bench").is_dir():
+            return candidate
+    return None
+
+
+def _load_contexts(
+    executor: BenchmarkExecutor,
+    *,
+    root: Path,
+    pattern: str | None,
+    benchmarks: Sequence[str],
+) -> list:
+    definitions: list[BenchmarkDefinition] = []
+    if benchmarks:
+        seen: set[tuple[Path, str]] = set()
+        for selector in benchmarks:
+            for definition in _discover_selected_definitions(executor, root=root, selector=selector):
+                key = (definition.path, definition.id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                definitions.append(definition)
+    else:
+        definitions = list(
+            discover_definitions(
+                pattern,
+                version_supplier=lambda: executor.build_info().version,
+                root=root,
+            ),
+        )
+    return [context for definition in definitions if (context := executor.create_context(definition)) is not None]
+
+
+def _discover_selected_definitions(
+    executor: BenchmarkExecutor,
+    *,
+    root: Path,
+    selector: str,
+) -> list[BenchmarkDefinition]:
+    candidates = [
+        Path(selector),
+        root / selector,
+        root / "bench" / selector,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return discover_definitions(
+                str(candidate.resolve()),
+                version_supplier=lambda: executor.build_info().version,
+                root=root,
+            )
+    return discover_definitions(
+        selector,
+        version_supplier=lambda: executor.build_info().version,
+        root=root,
+    )
+
+
+def _print_run_summary(report_paths: Sequence[Path]) -> None:
+    reports = _select_fastest_from_paths(report_paths)
+    if not reports:
+        return
+    click.echo()
+    click.echo(_render_run_summary(reports))
+
+
+def _select_fastest_from_paths(report_paths: Sequence[Path]) -> list[Report]:
+    grouped: dict[str, list[Report]] = {}
+    for path in report_paths:
+        report = load_report(path)
+        if report is None:
+            continue
+        grouped.setdefault(report.pipeline, []).append(report)
+    fastest = select_fastest(grouped)
+    return [fastest[pipeline] for pipeline in sorted(fastest)]
+
+
+def _render_run_summary(reports: Sequence[Report]) -> str:
+    benchmark_width = max(len("benchmark"), *(len(report.pipeline) for report in reports))
+    lines = [
+        f"{'benchmark':<{benchmark_width}}  {'runtime':>10}  {'peak rss':>10}",
+        f"{'-' * benchmark_width}  {'-' * 10}  {'-' * 10}",
+    ]
+    for report in reports:
+        lines.append(
+            f"{report.pipeline:<{benchmark_width}}  "
+            f"{report.wall_clock:>10.2f}s  "
+            f"{report.rss_kb / 1024:>9.0f} MB",
+        )
+    return "\n".join(lines)
 
 
 def _parse_compare_arguments(

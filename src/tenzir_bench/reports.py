@@ -22,39 +22,45 @@ class Report:
     artifact_id: str | None
 
 
+def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    pipeline = payload.get("pipeline")
+    if not pipeline:
+        return None
+    build = payload.get("build", {})
+    version = build.get("version")
+    runtime = payload.get("runtime", {})
+    wall_clock = runtime.get("wall_clock")
+    rss = runtime.get("max_resident_set_kb")
+    if wall_clock is None or rss is None:
+        return None
+    return Report(
+        path=path,
+        pipeline=pipeline,
+        benchmark_id=str(payload.get("benchmark_id") or pipeline),
+        implementation_id=payload.get("implementation_id"),
+        wall_clock=float(wall_clock),
+        rss_kb=int(rss),
+        build_version=version,
+        artifact_id=artifact_id,
+    )
+
+
 def load_reports(directory: Path, artifact_filter: str | None = None) -> dict[str, list[Report]]:
     results: dict[str, list[Report]] = {}
     if not directory.exists():
         return results
     for file in directory.rglob("*.json"):
-        try:
-            payload = json.loads(file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        pipeline = payload.get("pipeline")
-        if not pipeline:
-            continue
         artifact_id = _artifact_id(directory, file)
         if artifact_filter and not matches_identifier(artifact_id, artifact_filter):
             continue
-        build = payload.get("build", {})
-        version = build.get("version")
-        runtime = payload.get("runtime", {})
-        wall_clock = runtime.get("wall_clock")
-        rss = runtime.get("max_resident_set_kb")
-        if wall_clock is None or rss is None:
+        report = load_report(file, artifact_id=artifact_id)
+        if report is None:
             continue
-        report = Report(
-            path=file,
-            pipeline=pipeline,
-            benchmark_id=str(payload.get("benchmark_id") or pipeline),
-            implementation_id=payload.get("implementation_id"),
-            wall_clock=float(wall_clock),
-            rss_kb=int(rss),
-            build_version=version,
-            artifact_id=artifact_id,
-        )
-        results.setdefault(pipeline, []).append(report)
+        results.setdefault(report.pipeline, []).append(report)
     return results
 
 

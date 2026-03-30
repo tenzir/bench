@@ -30,6 +30,7 @@ class BenchmarkDefinition:
     min_version: str | None
     max_version: str | None
     input_path: str
+    input_source: str | None
     input_events: int | None
     input_measure: bool
     output_path: str | None
@@ -71,6 +72,9 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     if not isinstance(input_section, dict):
         raise BenchmarkError(f"{path}: benchmark.input must be a mapping")
     input_path = _require_str(input_section, "path", path)
+    input_source = input_section.get("source")
+    if input_source is not None and not isinstance(input_source, str):
+        raise BenchmarkError(f"{path}: benchmark.input.source must be a string")
     input_events = input_section.get("events")
     if input_events is not None and not isinstance(input_events, int):
         raise BenchmarkError(f"{path}: benchmark.input.events must be an integer")
@@ -126,6 +130,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         min_version=min_version,
         max_version=max_version,
         input_path=input_path,
+        input_source=input_source,
         input_events=input_events,
         input_measure=input_measure,
         output_path=output_path,
