@@ -16,11 +16,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .definitions import BenchmarkDefinition, BenchmarkError, parse_benchmark_file
+from .definitions import BenchmarkDefinition, BenchmarkError
 from . import fixtures as fixture_api
 from .hashing import hash_benchmark, hash_file
 from .paths import BenchPaths
 from .runners import RunnerRegistry
+from .specs import discover_definitions
 
 _LOG = logging.getLogger(__name__)
 
@@ -60,13 +61,15 @@ class BenchmarkExecutor:
         self._validated_invocation = False
 
     def discover(self, pattern: str | None) -> Iterable[BenchmarkContext]:
-        files = _discover_files(pattern)
-        for file in files:
-            try:
-                definition = parse_benchmark_file(file)
-            except BenchmarkError as exc:
-                _LOG.error("Skipping %s: %s", file, exc)
-                continue
+        try:
+            definitions = discover_definitions(
+                pattern,
+                version_supplier=lambda: self._get_build_info().version,
+            )
+        except BenchmarkError as exc:
+            _LOG.error("%s", exc)
+            return
+        for definition in definitions:
             context = self.create_context(definition)
             if context:
                 yield context
@@ -483,11 +486,13 @@ def _run_once(
     if definition.input_events is not None and metrics.wall_clock:
         throughput["records_total_processed"] = definition.input_events
         throughput["records_per_second"] = definition.input_events / metrics.wall_clock
-    report = {
-        "pipeline": definition.id,
-        "revision": revision,
-        "build": {
-            "version": build.version,
+        report = {
+            "pipeline": definition.id,
+            "benchmark_id": definition.benchmark_id or definition.id,
+            "implementation_id": definition.implementation_id,
+            "revision": revision,
+            "build": {
+                "version": build.version,
             "type": build.build_type,
             "path": build.path,
             "options": list(binary_args),

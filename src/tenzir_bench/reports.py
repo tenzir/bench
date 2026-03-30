@@ -14,6 +14,8 @@ _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 class Report:
     path: Path
     pipeline: str
+    benchmark_id: str
+    implementation_id: str | None
     wall_clock: float
     rss_kb: int
     build_version: str | None
@@ -45,6 +47,8 @@ def load_reports(directory: Path, artifact_filter: str | None = None) -> dict[st
         report = Report(
             path=file,
             pipeline=pipeline,
+            benchmark_id=str(payload.get("benchmark_id") or pipeline),
+            implementation_id=payload.get("implementation_id"),
             wall_clock=float(wall_clock),
             rss_kb=int(rss),
             build_version=version,

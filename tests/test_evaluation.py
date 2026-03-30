@@ -12,6 +12,8 @@ class EvaluationOutputTest(unittest.TestCase):
         baseline = Report(
             path=Path("/tmp/base.json"),
             pipeline="bench/example",
+            benchmark_id="bench",
+            implementation_id="example",
             wall_clock=1.25,
             rss_kb=2048,
             build_version="v1.0.0",

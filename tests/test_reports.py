@@ -12,6 +12,8 @@ def _write_report(root: Path, artifact_id: str, pipeline: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "pipeline": pipeline,
+        "benchmark_id": pipeline.split("/")[0],
+        "implementation_id": pipeline.split("/")[-1],
         "build": {"version": artifact_id},
         "runtime": {
             "wall_clock": 1.0,
@@ -35,3 +37,14 @@ class ReportsTest(unittest.TestCase):
     def test_matches_identifier_accepts_commitish_prefixes(self) -> None:
         self.assertTrue(matches_identifier("main-abcdef1", "abcdef1234567890"))
         self.assertFalse(matches_identifier("v1.2.3", "abcdef1234567890"))
+
+    def test_load_reports_preserves_benchmark_and_implementation_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_report(root, "v1.2.3", "from_kafka_1m/neo")
+
+            reports = load_reports(root)
+
+        report = reports["from_kafka_1m/neo"][0]
+        self.assertEqual(report.benchmark_id, "from_kafka_1m")
+        self.assertEqual(report.implementation_id, "neo")

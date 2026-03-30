@@ -40,6 +40,8 @@ class BenchmarkDefinition:
     runner: str
     runtime: BenchmarkRuntime
     pipeline_body: str
+    benchmark_id: str | None = None
+    implementation_id: str | None = None
 
 
 def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
@@ -134,6 +136,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         runner=runner,
         runtime=runtime,
         pipeline_body=body,
+        benchmark_id=benchmark_id,
     )
 
 

@@ -7,15 +7,16 @@ import logging
 import re
 import shlex
 import shutil
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from textwrap import dedent
 
-from .definitions import BenchmarkError, parse_benchmark_file
+from .definitions import BenchmarkError
 from .executor import BenchmarkExecutor, BuildInfo, build_result_id
 from .paths import BenchPaths
 from .reports import Report, load_reports, select_fastest
 from .runners import RunnerRegistry
+from .specs import load_definitions_from_paths
 
 _LOG = logging.getLogger(__name__)
 
@@ -134,27 +135,18 @@ def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> It
     if not dirs:
         yield from executor.discover(pattern=None)
         return
-    seen = set()
-    for directory in dirs:
-        if directory.is_file() and directory.suffix == ".tql":
-            candidates = [directory]
-        elif directory.is_dir():
-            candidates = directory.rglob("*.tql")
-        else:
-            _LOG.warning("Benchmark path %s does not exist", directory)
-            continue
-        for file in candidates:
-            if file in seen:
-                continue
-            seen.add(file)
-            try:
-                definition = parse_benchmark_file(file)
-            except BenchmarkError as exc:
-                _LOG.error("Skipping %s: %s", file, exc)
-                continue
-            context = executor.create_context(definition)
-            if context:
-                yield context
+    try:
+        definitions = load_definitions_from_paths(
+            list(dirs),
+            version_supplier=lambda: executor.build_info().version,
+        )
+    except (BenchmarkError, FileNotFoundError, RuntimeError) as exc:
+        _LOG.error("%s", exc)
+        return
+    for definition in definitions:
+        context = executor.create_context(definition)
+        if context:
+            yield context
 
 
 def _render_compact_table(
