@@ -1,6 +1,7 @@
 import subprocess
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +13,7 @@ from tenzir_bench.kafka_fixture import KafkaFixtureOptions
 class KafkaFixtureTest(unittest.TestCase):
     def test_kafka_fixture_starts_compose_and_reseeds_topic(self) -> None:
         commands: list[list[str]] = []
-        published_payloads: list[str] = []
+        published_payloads: list[bytes] = []
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -57,10 +58,34 @@ class KafkaFixtureTest(unittest.TestCase):
                 commands.append(text_cmd)
                 if text_cmd == ["docker", "compose", "version"]:
                     return subprocess.CompletedProcess(text_cmd, 0, stdout="compose ok", stderr="")
-                if "produce" in text_cmd:
-                    assert stdin is not None
-                    published_payloads.append(stdin.read())
                 return subprocess.CompletedProcess(text_cmd, 0, stdout="", stderr="")
+
+            class _FakeStdin(BytesIO):
+                def __init__(self) -> None:
+                    super().__init__()
+                    self.payload = b""
+
+                def close(self) -> None:
+                    self.payload = self.getvalue()
+                    super().close()
+
+            class _FakePopen:
+                def __init__(self, cmd, cwd=None, stdin=None, stdout=None, stderr=None):  # noqa: ANN001
+                    del cwd, stdin, stdout, stderr
+                    self.cmd = [str(part) for part in cmd]
+                    commands.append(self.cmd)
+                    self.stdin = _FakeStdin()
+                    self.returncode = 0
+
+                def communicate(self):  # noqa: ANN201
+                    published_payloads.append(self.stdin.payload)
+                    return (b"", b"")
+
+                def kill(self) -> None:
+                    return None
+
+                def wait(self) -> int:
+                    return self.returncode
 
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
@@ -74,32 +99,42 @@ class KafkaFixtureTest(unittest.TestCase):
                 with (
                     patch("tenzir_bench.kafka_fixture.shutil.which", return_value="/usr/bin/docker"),
                     patch("tenzir_bench.kafka_fixture.subprocess.run", side_effect=_fake_run),
+                    patch("tenzir_bench.kafka_fixture.subprocess.Popen", side_effect=_FakePopen),
                     patch("tenzir_bench.kafka_fixture.time.sleep"),
                     fixture_api.activate(definition.fixtures) as env,
                 ):
                     self.assertEqual(env["BENCHMARK_KAFKA_BOOTSTRAP_SERVERS"], "127.0.0.1:9092")
                     self.assertEqual(env["BENCHMARK_KAFKA_TOPIC"], "bench")
                     self.assertTrue(env["BENCHMARK_KAFKA_GROUP_ID"].startswith("tenzir-bench-"))
+                    hook_env = dict(env)
                     fixture_api.invoke_active_hook(
                         "before_run",
                         input_path=dataset,
                         output_path=None,
                         phase="measurement",
                         run_index=0,
-                        env={},
+                        env=hook_env,
                         command=(),
                     )
+                    self.assertTrue(hook_env["BENCHMARK_KAFKA_GROUP_ID"].endswith("-measurement-0"))
             finally:
                 fixture_api.pop_context(token)
 
-        self.assertEqual(published_payloads, ['{"event_type":"flow"}\n{"event_type":"dns"}\n'])
+        self.assertEqual(len(published_payloads), 1)
+        self.assertEqual(
+            published_payloads[0],
+            (b'{"event_type":"flow"}\n{"event_type":"dns"}\n' * 500),
+        )
         flat_commands = [" ".join(command) for command in commands]
         self.assertTrue(any("docker compose version" == command for command in flat_commands))
         self.assertTrue(any(" up -d redpanda" in command for command in flat_commands))
         self.assertTrue(any(" rpk topic list --brokers 127.0.0.1:9092" in command for command in flat_commands))
         self.assertTrue(any(" rpk topic delete bench --brokers 127.0.0.1:9092" in command for command in flat_commands))
         self.assertTrue(any(" rpk topic create bench --partitions 1 --replicas 1 --brokers 127.0.0.1:9092" in command for command in flat_commands))
-        self.assertTrue(any(" rpk topic produce bench --brokers 127.0.0.1:9092" in command for command in flat_commands))
+        self.assertEqual(
+            sum(" rpk topic produce bench --brokers 127.0.0.1:9092" in command for command in flat_commands),
+            1,
+        )
         self.assertTrue(any(" down --volumes --remove-orphans" in command for command in flat_commands))
 
     def test_kafka_fixture_reports_missing_docker_compose(self) -> None:

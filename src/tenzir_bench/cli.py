@@ -275,6 +275,7 @@ def _discover_selected_definitions(
         Path(selector),
         root / selector,
         root / "bench" / selector,
+        root / "bench" / "benchmarks" / selector,
     ]
     for candidate in candidates:
         if candidate.exists():

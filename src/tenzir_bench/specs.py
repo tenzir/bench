@@ -138,9 +138,12 @@ def _load_legacy_definition(path: Path) -> BenchmarkDefinition:
 
 
 def _select_benchmark_dirs(bench_root: Path, patterns: Sequence[str] | None) -> list[Path]:
+    benchmarks_root = bench_root / "benchmarks"
+    if not benchmarks_root.exists():
+        benchmarks_root = bench_root
     benchmark_dirs = sorted(
         directory
-        for directory in bench_root.iterdir()
+        for directory in benchmarks_root.iterdir()
         if directory.is_dir() and (directory / "bench.yaml").exists()
     )
     if not patterns:

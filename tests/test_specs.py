@@ -10,7 +10,7 @@ class SpecsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             bench_root = root / "bench"
-            suite = bench_root / "from_kafka_1m"
+            suite = bench_root / "benchmarks" / "from_kafka_1m"
             suite.mkdir(parents=True)
             (bench_root / "defaults.txt").write_text("from_kafka_*\n", encoding="utf-8")
             (suite / "bench.yaml").write_text(
@@ -62,7 +62,7 @@ discard
     def test_load_definitions_from_paths_keeps_all_compatible_implementations(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            suite = root / "bench" / "json_parse"
+            suite = root / "bench" / "benchmarks" / "json_parse"
             suite.mkdir(parents=True)
             (suite / "bench.yaml").write_text(
                 """name: json_parse
@@ -110,7 +110,7 @@ discard
             root = Path(tmpdir)
             bench_root = root / "bench"
             for benchmark_id in ("from_kafka_1m", "json_parse"):
-                suite = bench_root / benchmark_id
+                suite = bench_root / "benchmarks" / benchmark_id
                 suite.mkdir(parents=True)
                 (suite / "bench.yaml").write_text(
                     """name: example

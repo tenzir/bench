@@ -458,6 +458,23 @@ def _push_fixture_options_context(
 _LOADED_FIXTURE_MODULES: set[Path] = set()
 
 
+def _load_fixture_module(path: Path) -> None:
+    resolved_candidate = path.resolve()
+    if resolved_candidate in _LOADED_FIXTURE_MODULES:
+        return
+    module_name = (
+        "_tenzir_bench_fixture_"
+        + hashlib.sha256(str(resolved_candidate).encode("utf-8")).hexdigest()[:12]
+    )
+    spec = importlib.util.spec_from_file_location(module_name, resolved_candidate)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load fixture module from {resolved_candidate}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    _LOADED_FIXTURE_MODULES.add(resolved_candidate)
+
+
 def load_fixture_modules(benchmark_path: Path, *, root: Path | None = None) -> None:
     """Load nearby ``fixtures.py`` modules for the given benchmark path."""
 
@@ -476,22 +493,14 @@ def load_fixture_modules(benchmark_path: Path, *, root: Path | None = None) -> N
 
     for directory in search_dirs:
         candidate = directory / "fixtures.py"
-        if not candidate.exists():
-            continue
-        resolved_candidate = candidate.resolve()
-        if resolved_candidate in _LOADED_FIXTURE_MODULES:
-            continue
-        module_name = (
-            "_tenzir_bench_fixture_"
-            + hashlib.sha256(str(resolved_candidate).encode("utf-8")).hexdigest()[:12]
-        )
-        spec = importlib.util.spec_from_file_location(module_name, resolved_candidate)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"could not load fixture module from {resolved_candidate}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-        _LOADED_FIXTURE_MODULES.add(resolved_candidate)
+        if candidate.exists():
+            _load_fixture_module(candidate)
+        fixtures_dir = directory / "fixtures"
+        if fixtures_dir.is_dir():
+            for module_path in sorted(fixtures_dir.glob("*.py")):
+                if module_path.name == "__init__.py":
+                    continue
+                _load_fixture_module(module_path)
 
 
 __all__ = [

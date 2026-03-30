@@ -34,6 +34,7 @@ class BenchmarkContext:
     dataset_path: Path
     benchmark_hash: str
     input_hash: str
+    root: Path
 
 
 class BenchmarkExecutor:
@@ -87,6 +88,7 @@ class BenchmarkExecutor:
             dataset_path=dataset,
             benchmark_hash=hash_benchmark(definition),
             input_hash=hash_file(dataset),
+            root=_benchmark_repo_root(definition.path),
         )
 
     def _ensure_dataset(self, definition: BenchmarkDefinition) -> Path:
@@ -422,12 +424,26 @@ def _git_revision() -> str | None:
         return None
 
 
+def _benchmark_repo_root(path: Path) -> Path:
+    resolved = path.resolve()
+    for ancestor in resolved.parents:
+        bench_dir = ancestor / "bench"
+        if not bench_dir.is_dir():
+            continue
+        try:
+            resolved.relative_to(bench_dir)
+        except ValueError:
+            continue
+        return ancestor
+    return resolved.parent
+
+
 @contextmanager
 def _benchmark_runtime_env(
     context: BenchmarkContext,
     output_root: Path,
 ) -> Iterable[dict[str, str]]:
-    fixture_api.load_fixture_modules(context.definition.path)
+    fixture_api.load_fixture_modules(context.definition.path, root=context.root)
     env = _benchmark_env(context.definition, context.dataset_path, output_root)
     token = fixture_api.push_context(
         fixture_api.FixtureContext(

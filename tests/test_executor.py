@@ -49,7 +49,7 @@ class ExecutorTest(unittest.TestCase):
                 cache_root=root / "cache",
                 state_root=root / "state",
             )
-            benchmark_dir = root / "bench" / "from_kafka_route53"
+            benchmark_dir = root / "bench" / "benchmarks" / "from_kafka_route53"
             benchmark_dir.mkdir(parents=True, exist_ok=True)
             source = root / "test" / "tests" / "perf" / "from_kafka_1m" / "route53_sample.ndjson"
             source.parent.mkdir(parents=True, exist_ok=True)
@@ -62,7 +62,7 @@ class ExecutorTest(unittest.TestCase):
                 min_version=None,
                 max_version=None,
                 input_path="perf/route53_sample.ndjson",
-                input_source="../../test/tests/perf/from_kafka_1m/route53_sample.ndjson",
+                input_source="../../../test/tests/perf/from_kafka_1m/route53_sample.ndjson",
                 input_events=1,
                 input_measure=True,
                 output_path=None,
@@ -95,7 +95,7 @@ class ExecutorTest(unittest.TestCase):
                 cache_root=root / "cache",
                 state_root=root / "state",
             )
-            benchmark_dir = root / "bench" / "from_kafka_route53"
+            benchmark_dir = root / "bench" / "benchmarks" / "from_kafka_route53"
             benchmark_dir.mkdir(parents=True, exist_ok=True)
             definition = BenchmarkDefinition(
                 path=benchmark_dir / "neo-discard.tql",

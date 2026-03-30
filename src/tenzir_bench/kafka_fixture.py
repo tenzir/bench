@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -16,6 +17,7 @@ from .fixtures import FixtureHandle, FixtureUnavailable, current_context, curren
 
 _LOG = logging.getLogger(__name__)
 _FIXTURE_BROKERS = "127.0.0.1:9092"
+_DATASET_REPETITIONS = 500
 
 
 @dataclass(frozen=True)
@@ -189,24 +191,44 @@ def _publish_dataset(
     topic: str,
     input_path: Path,
 ) -> None:
-    with input_path.open("r", encoding="utf-8") as handle:
-        _run(
-            [
-                *base_args,
-                "exec",
-                "-T",
-                service,
-                "rpk",
-                "topic",
-                "produce",
-                topic,
-                "--brokers",
-                _FIXTURE_BROKERS,
-            ],
-            cwd=cwd,
-            description=f"publish benchmark dataset to kafka topic {topic}",
-            stdin=handle,
-        )
+    process = subprocess.Popen(
+        [
+            *base_args,
+            "exec",
+            "-T",
+            service,
+            "rpk",
+            "topic",
+            "produce",
+            topic,
+            "--brokers",
+            _FIXTURE_BROKERS,
+        ],
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        if process.stdin is None:
+            raise RuntimeError("failed to open stdin for kafka dataset publisher")
+        with input_path.open("rb") as handle:
+            for _ in range(_DATASET_REPETITIONS):
+                handle.seek(0)
+                shutil.copyfileobj(handle, process.stdin)
+        process.stdin.close()
+        stdout, stderr = process.communicate()
+    except Exception:
+        process.kill()
+        process.wait()
+        raise
+    if process.returncode == 0:
+        return
+    detail = (stderr or stdout or b"").decode("utf-8", errors="replace").strip() or "no output"
+    raise RuntimeError(
+        "publish benchmark dataset to kafka topic "
+        f"{topic} failed (exit code {process.returncode}): {detail}",
+    )
 
 
 def _teardown(base_args: list[str], *, cwd: Path) -> None:
@@ -255,28 +277,30 @@ def kafka() -> FixtureHandle:
         timeout_seconds=options.wait_timeout_seconds,
         poll_interval_seconds=options.wait_poll_interval_seconds,
     )
+    _reset_topic(
+        base_args,
+        cwd=cwd,
+        service=options.service,
+        topic=options.topic,
+        partitions=options.partitions,
+        replication_factor=options.replication_factor,
+    )
+    _publish_dataset(
+        base_args,
+        cwd=cwd,
+        service=options.service,
+        topic=options.topic,
+        input_path=context.dataset_path,
+    )
+    group_prefix = f"{_group_id(context.definition.path, options.topic)}-{uuid.uuid4().hex[:8]}"
 
-    def _before_run(*, input_path: Path, **_kwargs: object) -> None:
-        _reset_topic(
-            base_args,
-            cwd=cwd,
-            service=options.service,
-            topic=options.topic,
-            partitions=options.partitions,
-            replication_factor=options.replication_factor,
-        )
-        _publish_dataset(
-            base_args,
-            cwd=cwd,
-            service=options.service,
-            topic=options.topic,
-            input_path=input_path,
-        )
+    def _before_run(*, phase: str, run_index: int, env: dict[str, str], **_kwargs: object) -> None:
+        env["BENCHMARK_KAFKA_GROUP_ID"] = f"{group_prefix}-{phase}-{run_index}"
 
     return FixtureHandle(
         env={
             "BENCHMARK_KAFKA_BOOTSTRAP_SERVERS": options.bootstrap_servers,
-            "BENCHMARK_KAFKA_GROUP_ID": _group_id(context.definition.path, options.topic),
+            "BENCHMARK_KAFKA_GROUP_ID": f"{group_prefix}-setup",
             "BENCHMARK_KAFKA_TOPIC": options.topic,
         },
         teardown=lambda: _teardown(base_args, cwd=cwd),
