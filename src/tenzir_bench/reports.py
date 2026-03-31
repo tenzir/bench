@@ -16,6 +16,8 @@ class Report:
     pipeline: str
     benchmark_id: str
     implementation_id: str | None
+    target: str | None
+    hardware_key: str | None
     wall_clock: float
     rss_kb: int
     build_version: str | None
@@ -31,7 +33,10 @@ def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
     if not pipeline:
         return None
     build = payload.get("build", {})
+    hardware = payload.get("hardware", {})
     version = build.get("version")
+    target = payload.get("target")
+    hardware_key = hardware.get("key") if isinstance(hardware, dict) else None
     runtime = payload.get("runtime", {})
     wall_clock = runtime.get("wall_clock")
     rss = runtime.get("max_resident_set_kb")
@@ -42,6 +47,8 @@ def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
         pipeline=pipeline,
         benchmark_id=str(payload.get("benchmark_id") or pipeline),
         implementation_id=payload.get("implementation_id"),
+        target=target if isinstance(target, str) else None,
+        hardware_key=hardware_key if isinstance(hardware_key, str) else None,
         wall_clock=float(wall_clock),
         rss_kb=int(rss),
         build_version=version,

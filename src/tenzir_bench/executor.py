@@ -8,7 +8,6 @@ import logging
 import os
 import shlex
 import shutil
-import socket
 import subprocess
 import urllib.parse
 import urllib.request
@@ -21,6 +20,7 @@ from pathlib import Path
 from .definitions import BenchmarkDefinition, BenchmarkError
 from . import fixtures as fixture_api
 from .hashing import hash_benchmark, hash_file
+from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
 from .runners import RunnerRegistry
 from .specs import discover_definitions
@@ -44,6 +44,7 @@ class BenchmarkExecutor:
         tenzir_bin: Path,
         runner_registry: RunnerRegistry,
         tenzir_args: Sequence[str] = (),
+        target: str | None = None,
         *,
         validate: bool = False,
         dry_run: bool = False,
@@ -52,6 +53,7 @@ class BenchmarkExecutor:
         self.paths = paths
         self.tenzir_bin = tenzir_bin
         self.tenzir_args = tuple(tenzir_args)
+        self.target = target or _infer_target(tenzir_bin)
         self.runners = runner_registry
         self.validate_only = validate
         self.dry_run = dry_run
@@ -197,9 +199,12 @@ class BenchmarkExecutor:
                     env=env,
                     command=command,
                     binary_args=self.tenzir_args,
+                    target=self.target,
                     timeout=context.definition.runtime.timeout_seconds,
                     output_root=output_root,
                     input_path=context.dataset_path,
+                    benchmark_hash=context.benchmark_hash,
+                    input_hash=context.input_hash,
                     build=build,
                     revision=revision,
                     store_result=False,
@@ -220,9 +225,12 @@ class BenchmarkExecutor:
                     env=env,
                     command=command,
                     binary_args=self.tenzir_args,
+                    target=self.target,
                     timeout=context.definition.runtime.timeout_seconds,
                     output_root=output_root,
                     input_path=context.dataset_path,
+                    benchmark_hash=context.benchmark_hash,
+                    input_hash=context.input_hash,
                     build=build,
                     revision=revision,
                     store_result=True,
@@ -469,9 +477,12 @@ def _run_once(
     env: dict[str, str],
     command: Sequence[str],
     binary_args: Sequence[str],
+    target: str,
     timeout: int | None,
     output_root: Path,
     input_path: Path,
+    benchmark_hash: str,
+    input_hash: str,
     build: BuildInfo,
     revision: str | None,
     store_result: bool,
@@ -533,19 +544,29 @@ def _run_once(
     if definition.input_events is not None and metrics.wall_clock:
         throughput["records_total_processed"] = definition.input_events
         throughput["records_per_second"] = definition.input_events / metrics.wall_clock
-        report = {
-            "pipeline": definition.id,
-            "benchmark_id": definition.benchmark_id or definition.id,
-            "implementation_id": definition.implementation_id,
-            "revision": revision,
-            "build": {
-                "version": build.version,
+    snapshot = environment_snapshot()
+    report = {
+        "pipeline": definition.id,
+        "benchmark_id": definition.benchmark_id or definition.id,
+        "implementation_id": definition.implementation_id,
+        "target": target,
+        "revision": revision,
+        "build": {
+            "version": build.version,
             "type": build.build_type,
             "path": build.path,
             "options": list(binary_args),
         },
         "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "environment": _environment_snapshot(),
+        "environment": snapshot,
+        "hardware": {
+            **snapshot["hardware"],
+            "key": hardware_key(snapshot),
+        },
+        "definition": {
+            "benchmark_hash": benchmark_hash,
+            "input_hash": input_hash,
+        },
         "command": command,
         "tags": definition.tags,
         "fixtures": [
@@ -563,6 +584,7 @@ def _run_once(
         "throughput": throughput,
         "measurement": {
             "run_index": run_index,
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
     }
     if definition.output_measure:
@@ -575,22 +597,6 @@ def _run_once(
     with output_path.open("w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2)
     return output_path
-
-
-def _environment_snapshot() -> dict:
-    import platform
-
-    return {
-        "hostname": socket.gethostname(),
-        "os": {
-            "name": platform.system(),
-            "release": platform.release(),
-            "version": platform.version(),
-        },
-        "hardware": {
-            "cores": os.cpu_count(),
-        },
-    }
 
 
 def build_result_id(build: BuildInfo, tenzir_args: Sequence[str]) -> str:
@@ -650,6 +656,12 @@ def _benchmark_env(
         env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
     _refresh_forwarded_env(env)
     return env
+
+
+def _infer_target(tenzir_bin: Path) -> str:
+    if tenzir_bin.suffix == ".sh" and tenzir_bin.parent.name == "docker":
+        return "docker"
+    return "static"
 
 
 def _refresh_forwarded_env(env: dict[str, str]) -> None:

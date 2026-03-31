@@ -16,6 +16,8 @@ def _report(
         pipeline=f"{benchmark_id}/{implementation_id}",
         benchmark_id=benchmark_id,
         implementation_id=implementation_id,
+        target="static",
+        hardware_key="local_x86_64_unknown_8c",
         wall_clock=seconds,
         rss_kb=rss_kb,
         build_version="v1.2.3",

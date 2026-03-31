@@ -14,6 +14,8 @@ def _write_report(root: Path, artifact_id: str, pipeline: str) -> None:
         "pipeline": pipeline,
         "benchmark_id": pipeline.split("/")[0],
         "implementation_id": pipeline.split("/")[-1],
+        "target": "static",
+        "hardware": {"key": "local_x86_64_unknown_8c"},
         "build": {"version": artifact_id},
         "runtime": {
             "wall_clock": 1.0,
@@ -60,3 +62,5 @@ class ReportsTest(unittest.TestCase):
         assert report is not None
         self.assertEqual(report.pipeline, "from_kafka_1m/neo")
         self.assertEqual(report.artifact_id, "v1.2.3")
+        self.assertEqual(report.target, "static")
+        self.assertEqual(report.hardware_key, "local_x86_64_unknown_8c")

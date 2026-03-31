@@ -14,6 +14,8 @@ class EvaluationOutputTest(unittest.TestCase):
             pipeline="bench/example",
             benchmark_id="bench",
             implementation_id="example",
+            target="static",
+            hardware_key="local_x86_64_unknown_8c",
             wall_clock=1.25,
             rss_kb=2048,
             build_version="v1.0.0",

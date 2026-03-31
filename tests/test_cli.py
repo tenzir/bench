@@ -24,6 +24,8 @@ class CliTest(unittest.TestCase):
                     pipeline="from_kafka_route53/neo-discard",
                     benchmark_id="from_kafka_route53",
                     implementation_id="neo-discard",
+                    target="static",
+                    hardware_key="local_x86_64_unknown_8c",
                     wall_clock=1.23,
                     rss_kb=65_536,
                     build_version="v1.2.3",
@@ -218,6 +220,8 @@ class CliTest(unittest.TestCase):
                         "pipeline": "from_kafka_route53/neo-discard",
                         "benchmark_id": "from_kafka_route53",
                         "implementation_id": "neo-discard",
+                        "target": "static",
+                        "hardware": {"key": "local_x86_64_unknown_8c"},
                         "build": {"version": "v1.2.3"},
                         "runtime": {
                             "wall_clock": 1.23,
