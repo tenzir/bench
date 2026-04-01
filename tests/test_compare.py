@@ -325,6 +325,78 @@ discard
         self.assertEqual(set(reports), {"from_kafka_route53/neo"})
         publish_reports.assert_called_once()
 
+    def test_prepare_compare_reports_for_build_refreshes_stale_docker_reference(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            stale_remote = Report(
+                path=Path(
+                    "s3://bucket/refs/main/abc/docker/runner-a/from_kafka_route53/neo/report.json"
+                ),
+                pipeline="from_kafka_route53/neo",
+                benchmark_id="from_kafka_route53",
+                implementation_id="neo",
+                target="docker",
+                hardware_key="runner-a",
+                wall_clock=1.0,
+                rss_kb=30_000,
+                build_version="v1.2.3",
+                artifact_id=None,
+                schema_version=1,
+            )
+            refreshed_local = Report(
+                path=Path("/tmp/report.json"),
+                pipeline="from_kafka_route53/neo",
+                benchmark_id="from_kafka_route53",
+                implementation_id="neo",
+                target="docker",
+                hardware_key="runner-a",
+                wall_clock=1.0,
+                rss_kb=400_000,
+                build_version="v1.2.3",
+                artifact_id=None,
+            )
+
+            with (
+                patch(
+                    "tenzir_bench.compare.download_reference_reports",
+                    return_value={("from_kafka_route53", "neo"): stale_remote},
+                ),
+                patch(
+                    "tenzir_bench.compare.expected_report_identities",
+                    return_value={("from_kafka_route53", "neo")},
+                ),
+                patch(
+                    "tenzir_bench.compare._prepare_local_reports",
+                    return_value={"from_kafka_route53/neo": refreshed_local},
+                ) as local_reports,
+                patch("tenzir_bench.compare.Publisher.publish_reports") as publish_reports,
+            ):
+                reports = prepare_compare_reports_for_build(
+                    paths,
+                    CompareBuild(
+                        label="main",
+                        binary=Path("/tmp/tenzir"),
+                        reference_destination="s3://bucket/refs/main/abc/docker",
+                        target="docker",
+                        version="v1.2.3",
+                    ),
+                    (),
+                )
+
+        self.assertEqual(set(reports), {"from_kafka_route53/neo"})
+        local_reports.assert_called_once()
+        publish_reports.assert_called_once_with(
+            {"from_kafka_route53/neo": refreshed_local},
+            "s3://bucket/refs/main/abc/docker",
+            force=True,
+        )
+
     def test_docker_wrapper_runs_python_entrypoint_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

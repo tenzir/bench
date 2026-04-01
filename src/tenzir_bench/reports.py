@@ -103,6 +103,10 @@ def select_fastest(reports: dict[str, list[Report]]) -> dict[str, Report]:
     return fastest
 
 
+def report_requires_refresh(report: Report) -> bool:
+    return report.target == "docker" and report.schema_version < REPORT_SCHEMA_VERSION
+
+
 def _trim_prefix(version: str | None) -> str | None:
     if version and version.startswith("v"):
         return version[1:]

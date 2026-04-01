@@ -24,7 +24,7 @@ from .references import (
     missing_report_identities,
     report_identity,
 )
-from .reports import Report, load_reports, select_fastest
+from .reports import Report, load_reports, report_requires_refresh, select_fastest
 from .runners import RunnerRegistry
 from .specs import load_definitions_from_paths
 
@@ -240,8 +240,13 @@ def _prepare_reference_backed_reports(
         hardware_key=current_hardware_key(),
         target=target,
     )
+    stale_identities = {
+        identity for identity, report in remote_reports.items() if report_requires_refresh(report)
+    }
     remote_reports = {
-        identity: report for identity, report in remote_reports.items() if identity in expected
+        identity: report
+        for identity, report in remote_reports.items()
+        if identity in expected and identity not in stale_identities
     }
     missing = missing_report_identities(expected, remote_reports)
     if not missing:
@@ -268,7 +273,11 @@ def _prepare_reference_backed_reports(
         if report_identity(report) in missing
     }
     if reports_to_publish:
-        Publisher().publish_reports(reports_to_publish, build.reference_destination)
+        Publisher().publish_reports(
+            reports_to_publish,
+            build.reference_destination,
+            force=bool(stale_identities),
+        )
     combined = dict(_reports_by_pipeline(remote_reports.values()))
     combined.update(reports_to_publish)
     return combined
