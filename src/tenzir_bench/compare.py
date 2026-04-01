@@ -454,8 +454,8 @@ def _format_row(
             report.wall_clock if report else None,
         )
         rss_delta = _fmt_percent_change(
-            baseline.rss_kb if baseline else None,
-            report.rss_kb if report else None,
+            _rss_value(baseline),
+            _rss_value(report),
         )
     else:
         seconds_delta = ""
@@ -511,8 +511,6 @@ def _fmt_detail_rss(base: Report, cand: Report) -> str:
 
 def _rss_value(report: Report | None) -> int | None:
     if report is None:
-        return None
-    if report.target == "docker":
         return None
     return report.rss_kb
 

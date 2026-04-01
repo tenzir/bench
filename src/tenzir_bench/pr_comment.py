@@ -327,8 +327,6 @@ def _fmt_percent_change(base: float | None, value: float | None) -> str:
 def _rss_value(report: Report | None) -> float | None:
     if report is None:
         return None
-    if report.target == "docker":
-        return None
     return float(report.rss_kb)
 
 
