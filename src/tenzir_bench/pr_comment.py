@@ -58,8 +58,8 @@ def render_grouped_markdown(builds: Sequence[BuildInput]) -> str:
                         ),
                         rss=_fmt_rss(report),
                         delta_rss=_fmt_percent_change(
-                            float(baseline.rss_kb) if baseline else None,
-                            float(report.rss_kb),
+                            _rss_value(baseline),
+                            _rss_value(report),
                         ),
                     ),
                 )
@@ -308,17 +308,28 @@ def _fmt_seconds(report: Report) -> str:
 
 
 def _fmt_rss(report: Report) -> str:
-    return f"{report.rss_kb / 1024:.0f} MB"
+    rss = _rss_value(report)
+    if rss is None:
+        return "n/a"
+    return f"{rss / 1024:.0f} MB"
 
 
-def _fmt_percent_change(base: float | None, value: float) -> str:
-    if base in (None, 0):
+def _fmt_percent_change(base: float | None, value: float | None) -> str:
+    if base in (None, 0) or value is None:
         return "-"
     delta = ((value - base) / base) * 100
     if abs(delta) < 0.05:
         return "0.0%"
     sign = "+" if delta > 0 else ""
     return f"{sign}{delta:.1f}%"
+
+
+def _rss_value(report: Report | None) -> float | None:
+    if report is None:
+        return None
+    if report.target == "docker":
+        return None
+    return float(report.rss_kb)
 
 
 def _ordered_present_builds(

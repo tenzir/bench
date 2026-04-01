@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 import tempfile
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import ClassVar, override
 
 _LOG = logging.getLogger(__name__)
+_DOCKER_MAXRSS_RE = re.compile(r"^tenzir-bench-maxrss=(?P<value>\d+)$", re.MULTILINE)
 
 
 @dataclass
@@ -64,11 +66,12 @@ class TimeRunner(Runner):
             if proc.returncode != 0:
                 raise RuntimeError(proc.stderr.strip() or f"runner exited with {proc.returncode}")
             metrics = _parse_time_metrics(metrics_path)
+            maxrss = _parse_docker_maxrss(proc.stderr) or int(metrics["maxrss"])
             return RunnerMetrics(
                 wall_clock=float(metrics["elapsed"]),
                 cpu_user=float(metrics["user"]),
                 cpu_system=float(metrics["system"]),
-                max_resident_set_kb=int(metrics["maxrss"]),
+                max_resident_set_kb=maxrss,
             )
         finally:
             Path(metrics_path).unlink(missing_ok=True)
@@ -101,3 +104,10 @@ def _parse_time_metrics(path: str) -> dict[str, str]:
             key, value = line.strip().split("=", 1)
             metrics[key] = value
     return metrics
+
+
+def _parse_docker_maxrss(stderr: str) -> int | None:
+    match = _DOCKER_MAXRSS_RE.search(stderr)
+    if match is None:
+        return None
+    return int(match.group("value"))

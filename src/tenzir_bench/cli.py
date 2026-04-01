@@ -351,12 +351,9 @@ def _render_run_summary(reports: Sequence[Report]) -> str:
         f"{'-' * benchmark_width}  {'-' * 10}  {'-' * 10}",
     ]
     for report in reports:
+        peak_rss = "n/a" if report.target == "docker" else f"{report.rss_kb / 1024:.0f} MB"
         lines.append(
-            (
-                f"{report.pipeline:<{benchmark_width}}  "
-                f"{report.wall_clock:>10.2f}s  "
-                f"{report.rss_kb / 1024:>9.0f} MB"
-            ),
+            (f"{report.pipeline:<{benchmark_width}}  {report.wall_clock:>10.2f}s  {peak_rss:>10}"),
         )
     return "\n".join(lines)
 

@@ -229,12 +229,16 @@ def _prepare_reference_backed_reports(
         raise RuntimeError(f"{build.label}: reference-backed build requires a target")
     if build.reference_destination is None:
         raise RuntimeError(f"{build.label}: reference-backed build requires a destination")
+    expected = expected_report_identities(paths, build, benchmark_dirs)
     remote_reports = download_reference_reports(
         build.reference_destination,
+        benchmarks=sorted({benchmark_id for benchmark_id, _ in expected}),
         hardware_key=current_hardware_key(),
         target=target,
     )
-    expected = expected_report_identities(paths, build, benchmark_dirs)
+    remote_reports = {
+        identity: report for identity, report in remote_reports.items() if identity in expected
+    }
     missing = missing_report_identities(expected, remote_reports)
     if not missing:
         return _reports_by_pipeline(remote_reports.values())
@@ -460,9 +464,10 @@ def _fmt_seconds(report: Report | None) -> str:
 
 
 def _fmt_rss(report: Report | None) -> str:
-    if not report:
+    value = _rss_value(report)
+    if value is None:
         return "-"
-    return f"{report.rss_kb / 1024:.0f} MB"
+    return f"{value / 1024:.0f} MB"
 
 
 def _fmt_percent_change(base: float | None, cand: float | None) -> str:
@@ -476,7 +481,8 @@ def _fmt_percent_change(base: float | None, cand: float | None) -> str:
 def _detail_row(report: Report | None, baseline: Report | None) -> str:
     if report is None:
         return "missing"
-    row = f"wall={report.wall_clock:.2f}s rss={report.rss_kb / 1024:.0f} MB source={report.path}"
+    rss = _fmt_rss(report)
+    row = f"wall={report.wall_clock:.2f}s rss={rss} source={report.path}"
     if baseline is None:
         return row
     return f"{row} Δwall={_fmt_detail_seconds(baseline, report)} Δrss={_fmt_detail_rss(baseline, report)}"
@@ -490,9 +496,21 @@ def _fmt_detail_seconds(base: Report, cand: Report) -> str:
 
 
 def _fmt_detail_rss(base: Report, cand: Report) -> str:
-    delta = cand.rss_kb - base.rss_kb
+    base_rss = _rss_value(base)
+    cand_rss = _rss_value(cand)
+    if base_rss is None or cand_rss is None:
+        return "-"
+    delta = int(cand_rss - base_rss)
     sign = "+" if delta > 0 else ""
     return f"{sign}{delta}k"
+
+
+def _rss_value(report: Report | None) -> int | None:
+    if report is None:
+        return None
+    if report.target == "docker":
+        return None
+    return report.rss_kb
 
 
 def _label(path: Path) -> str:
@@ -574,6 +592,9 @@ def _docker_wrapper_script(image: str, paths: BenchPaths) -> str:
             exit 127
         fi
 
+        ENTRYPOINT_JSON="$(docker image inspect --format '{{{{json .Config.Entrypoint}}}}' "$IMAGE")"
+        CMD_JSON="$(docker image inspect --format '{{{{json .Config.Cmd}}}}' "$IMAGE")"
+
         declare -a volumes=()
 
         _add_volume() {{
@@ -606,6 +627,29 @@ def _docker_wrapper_script(image: str, paths: BenchPaths) -> str:
             fi
         done
 
-        exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${{volumes[@]}}" "${{forward_envs[@]}}" "$IMAGE" "$@"
+        PYTHON_WRAPPER="$(cat <<'PY'
+        import json
+        import os
+        import subprocess
+        import sys
+
+        entrypoint = json.loads(sys.argv[1]) or []
+        default_cmd = json.loads(sys.argv[2]) or []
+        sep = sys.argv.index("--")
+        runtime_args = sys.argv[sep + 1 :]
+        argv = entrypoint + (runtime_args if runtime_args else default_cmd)
+        if not argv:
+            print("docker image is missing an entrypoint/cmd for tenzir-bench", file=sys.stderr)
+            raise SystemExit(127)
+        proc = subprocess.Popen(argv)
+        _pid, status, rusage = os.wait4(proc.pid, 0)
+        exit_code = os.waitstatus_to_exitcode(status)
+        if exit_code == 0:
+            print(f"tenzir-bench-maxrss={{rusage.ru_maxrss}}", file=sys.stderr)
+        raise SystemExit(exit_code)
+        PY
+        )"
+
+        exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${{volumes[@]}}" "${{forward_envs[@]}}" --entrypoint python3 "$IMAGE" -c "$PYTHON_WRAPPER" "$ENTRYPOINT_JSON" "$CMD_JSON" -- "$@"
         """,
     )

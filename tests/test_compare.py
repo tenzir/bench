@@ -7,6 +7,7 @@ from unittest.mock import patch
 from tenzir_bench.compare import (
     CompareBuild,
     _cache_key,
+    _docker_wrapper_script,
     _unique_labels,
     expected_report_identities,
     prepare_compare_reports_for_build,
@@ -210,6 +211,71 @@ discard
         self.assertEqual(set(reports), {"from_kafka_route53/neo"})
         local_reports.assert_not_called()
 
+    def test_prepare_compare_reports_for_build_filters_unrequested_remote_benchmarks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            requested = Report(
+                path=Path(
+                    "s3://bucket/refs/main/abc/static/runner-a/from_kafka_route53/neo/report.json"
+                ),
+                pipeline="from_kafka_route53/neo",
+                benchmark_id="from_kafka_route53",
+                implementation_id="neo",
+                target="static",
+                hardware_key="runner-a",
+                wall_clock=1.0,
+                rss_kb=1024,
+                build_version="v1.2.3",
+                artifact_id=None,
+            )
+            unrelated = Report(
+                path=Path(
+                    "s3://bucket/refs/main/abc/static/runner-a/from_file_route53_ocsf/neo/report.json"
+                ),
+                pipeline="from_file_route53_ocsf/neo",
+                benchmark_id="from_file_route53_ocsf",
+                implementation_id="neo",
+                target="static",
+                hardware_key="runner-a",
+                wall_clock=2.0,
+                rss_kb=2048,
+                build_version="v1.2.3",
+                artifact_id=None,
+            )
+
+            with (
+                patch(
+                    "tenzir_bench.compare.download_reference_reports",
+                    return_value={
+                        ("from_kafka_route53", "neo"): requested,
+                        ("from_file_route53_ocsf", "neo"): unrelated,
+                    },
+                ),
+                patch(
+                    "tenzir_bench.compare.expected_report_identities",
+                    return_value={("from_kafka_route53", "neo")},
+                ),
+            ):
+                reports = prepare_compare_reports_for_build(
+                    paths,
+                    CompareBuild(
+                        label="main",
+                        binary=None,
+                        reference_destination="s3://bucket/refs/main/abc/static",
+                        target="static",
+                        version="v1.2.3",
+                    ),
+                    (),
+                )
+
+        self.assertEqual(set(reports), {"from_kafka_route53/neo"})
+
     def test_prepare_compare_reports_for_build_backfills_only_missing_reference(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -258,3 +324,23 @@ discard
 
         self.assertEqual(set(reports), {"from_kafka_route53/neo"})
         publish_reports.assert_called_once()
+
+    def test_docker_wrapper_runs_python_entrypoint_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+
+            script = _docker_wrapper_script("ghcr.io/tenzir/tenzir:test", paths)
+
+        self.assertIn(
+            "docker image inspect --format '{{json .Config.Entrypoint}}' \"$IMAGE\"", script
+        )
+        self.assertIn("docker image inspect --format '{{json .Config.Cmd}}' \"$IMAGE\"", script)
+        self.assertIn("--entrypoint python3", script)
+        self.assertIn("tenzir-bench-maxrss=", script)
+        self.assertIn("os.wait4(proc.pid, 0)", script)

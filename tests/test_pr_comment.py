@@ -196,8 +196,8 @@ def test_render_grouped_markdown_orders_release_main_extra_candidate_with_adjace
     ]
     indices = [markdown.index(row) for row in rows]
     assert indices == sorted(indices)
-    assert "| neo | main static | 10.50 | +5.0% | 2 MB | +5.0% |" in markdown
-    assert "| neo | candidate static | 12.00 | +20.0% | 2 MB | +20.0% |" in markdown
+    assert "| neo | main static | 10.50 | +5.0% | 2 MB | - |" in markdown
+    assert "| neo | candidate static | 12.00 | +20.0% | 2 MB | - |" in markdown
 
 
 def test_render_grouped_markdown_uses_static_main_baseline_when_no_docker_main_exists() -> None:
@@ -221,3 +221,27 @@ def test_render_grouped_markdown_uses_static_main_baseline_when_no_docker_main_e
     )
 
     assert "| neo | candidate static | 12.00 | +20.0% | 1 MB | +20.0% |" in markdown
+
+
+def test_render_grouped_markdown_hides_docker_rss() -> None:
+    markdown = render_grouped_markdown(
+        [
+            BuildDisplay(
+                label="main docker",
+                role="main",
+                target="docker",
+                implicit=True,
+                reports={"b/neo": _report("b", "neo", target="docker", seconds=10.0, rss_kb=30000)},
+            ),
+            BuildDisplay(
+                label="candidate docker",
+                role="candidate",
+                target="docker",
+                implicit=True,
+                reports={"b/neo": _report("b", "neo", target="docker", seconds=12.0, rss_kb=31000)},
+            ),
+        ]
+    )
+
+    assert "| neo | main docker | 10.00 | 0.0% | n/a | - |" in markdown
+    assert "| neo | candidate docker | 12.00 | +20.0% | n/a | - |" in markdown
