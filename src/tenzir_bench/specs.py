@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 import re
+from typing import cast
 
 import yaml
 
@@ -219,14 +220,10 @@ def _load_spec_implementation(path: Path, *, version: str | None) -> BenchmarkDe
 def _parse_benchmark_metadata(path: Path) -> dict[str, object]:
     if not path.exists():
         raise BenchmarkError(f"{path}: missing benchmark manifest")
-    try:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise BenchmarkError(f"Failed to parse YAML benchmark manifest in {path}: {exc}") from exc
-    if isinstance(payload, dict) and isinstance(payload.get("bench"), dict):
-        payload = payload["bench"]
-    if not isinstance(payload, dict):
-        raise BenchmarkError(f"{path}: benchmark manifest must be a mapping")
+    payload = _load_yaml_mapping(path.read_text(encoding="utf-8"), path, "benchmark manifest")
+    bench_section = payload.get("bench")
+    if isinstance(bench_section, Mapping):
+        payload = _string_key_mapping(bench_section, path, "bench")
     return payload
 
 
@@ -237,13 +234,8 @@ def _parse_spec_implementation(
 ) -> BenchmarkDefinition | None:
     raw_text = path.read_text(encoding="utf-8")
     frontmatter, body = _split_frontmatter(raw_text, path)
-    try:
-        payload = yaml.safe_load(frontmatter) or {}
-    except yaml.YAMLError as exc:
-        raise BenchmarkError(f"Failed to parse YAML frontmatter in {path}: {exc}") from exc
-    implementation = payload.get("bench")
-    if not isinstance(implementation, dict):
-        raise BenchmarkError(f"{path}: missing 'bench' mapping in frontmatter")
+    payload = _load_yaml_mapping(frontmatter, path, "frontmatter")
+    implementation = _require_mapping(payload.get("bench"), path, "bench")
     implementation_id = _require_str(implementation, "id", path, prefix="bench")
     description = _optional_str(implementation, "description", path, prefix="bench")
     min_version = _optional_str(implementation, "min_version", path, prefix="bench")
@@ -255,9 +247,7 @@ def _parse_spec_implementation(
         _parse_tags(metadata.get("tags") or {}, path, "bench.yaml tags"),
         _parse_tags(implementation.get("tags") or {}, path, "bench.tags"),
     )
-    input_section = metadata.get("input")
-    if not isinstance(input_section, dict):
-        raise BenchmarkError(f"{path}: bench.yaml input must be a mapping")
+    input_section = _require_mapping(metadata.get("input"), path, "input")
     input_path = _require_str(input_section, "path", path, prefix="input")
     input_source = _optional_str(input_section, "source", path, prefix="input")
     input_events = input_section.get("events")
@@ -268,11 +258,8 @@ def _parse_spec_implementation(
     output_path: str | None = None
     output_measure = False
     if output_section is not None:
-        if not isinstance(output_section, dict):
-            raise BenchmarkError(f"{path}: bench.yaml output must be a mapping")
-        output_path = output_section.get("path")
-        if output_path is not None and not isinstance(output_path, str):
-            raise BenchmarkError(f"{path}: output.path must be a string")
+        output_section = _require_mapping(output_section, path, "output")
+        output_path = _optional_str(output_section, "path", path, prefix="output")
         output_measure = bool(output_section.get("measure", False))
     if input_measure and output_measure:
         raise BenchmarkError(f"{path}: only one of input.measure or output.measure can be true")
@@ -354,6 +341,34 @@ def _merge_tags(shared: dict[str, str], implementation: dict[str, str]) -> dict[
     return merged
 
 
+def _load_yaml_mapping(text: str, path: Path, label: str) -> dict[str, object]:
+    try:
+        payload = cast(object, yaml.safe_load(text))
+    except yaml.YAMLError as exc:
+        raise BenchmarkError(f"Failed to parse YAML {label} in {path}: {exc}") from exc
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise BenchmarkError(f"{path}: YAML {label} must be a mapping")
+    return _string_key_mapping(payload, path, label)
+
+
+def _string_key_mapping(
+    value: Mapping[object, object],
+    path: Path,
+    label: str,
+) -> dict[str, object]:
+    if not all(isinstance(key, str) for key in value):
+        raise BenchmarkError(f"{path}: {label} keys must be strings")
+    return {cast(str, key): entry for key, entry in value.items()}
+
+
+def _require_mapping(value: object, path: Path, label: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise BenchmarkError(f"{path}: {label} must be a mapping")
+    return _string_key_mapping(value, path, label)
+
+
 def _parse_tags(value: object, path: Path, field_name: str) -> dict[str, str]:
     if isinstance(value, dict) and all(
         isinstance(k, str) and isinstance(v, str) for k, v in value.items()
@@ -383,6 +398,7 @@ def _parse_mapping_str(value: object, path: Path, field_name: str) -> dict[str, 
 def _parse_runtime(value: object, path: Path) -> BenchmarkRuntime:
     if not isinstance(value, dict):
         raise BenchmarkError(f"{path}: bench.yaml runtime must be a mapping")
+    value = _string_key_mapping(value, path, "runtime")
     warmup_runs = value.get("warmup_runs", 0)
     measurement_runs = value.get("measurement_runs", 1)
     timeout_seconds = value.get("timeout_seconds")

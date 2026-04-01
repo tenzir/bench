@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import pathlib
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 import yaml
 
@@ -48,35 +50,22 @@ class BenchmarkDefinition:
 def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     raw_text = path.read_text(encoding="utf-8")
     frontmatter, body = _split_frontmatter(raw_text, path)
-    try:
-        data = yaml.safe_load(frontmatter) or {}
-    except yaml.YAMLError as exc:
-        raise BenchmarkError(f"Failed to parse YAML frontmatter in {path}: {exc}") from exc
-    benchmark = data.get("benchmark")
-    if not isinstance(benchmark, dict):
-        raise BenchmarkError(f"{path}: missing 'benchmark' mapping in frontmatter")
+    data = _load_yaml_mapping(frontmatter, path, "frontmatter")
+    benchmark = _require_mapping(data.get("benchmark"), path, "benchmark")
     benchmark_id = _require_str(benchmark, "id", path)
     description = benchmark.get("description")
     if description is not None and not isinstance(description, str):
         raise BenchmarkError(f"{path}: benchmark.description must be a string")
-    tags = benchmark.get("tags") or {}
-    if not isinstance(tags, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in tags.items()
-    ):
-        raise BenchmarkError(f"{path}: benchmark.tags must be a mapping of strings")
+    tags = _require_str_mapping(benchmark.get("tags") or {}, path, "benchmark.tags")
     min_version = benchmark.get("min_version")
     if min_version is not None and not isinstance(min_version, str):
         raise BenchmarkError(f"{path}: benchmark.min_version must be a string")
     max_version = benchmark.get("max_version")
     if max_version is not None and not isinstance(max_version, str):
         raise BenchmarkError(f"{path}: benchmark.max_version must be a string")
-    input_section = benchmark.get("input")
-    if not isinstance(input_section, dict):
-        raise BenchmarkError(f"{path}: benchmark.input must be a mapping")
+    input_section = _require_mapping(benchmark.get("input"), path, "benchmark.input")
     input_path = _require_str(input_section, "path", path)
-    input_source = input_section.get("source")
-    if input_source is not None and not isinstance(input_source, str):
-        raise BenchmarkError(f"{path}: benchmark.input.source must be a string")
+    input_source = _optional_str(input_section, "source", path, prefix="benchmark.input")
     input_events = input_section.get("events")
     if input_events is not None and not isinstance(input_events, int):
         raise BenchmarkError(f"{path}: benchmark.input.events must be an integer")
@@ -85,12 +74,9 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     output_path: str | None = None
     output_measure = False
     if output_section is not None:
-        if not isinstance(output_section, dict):
-            raise BenchmarkError(f"{path}: benchmark.output must be a mapping")
-        output_path = output_section.get("path")
-        if output_path is not None and not isinstance(output_path, str):
-            raise BenchmarkError(f"{path}: benchmark.output.path must be a string")
-        output_measure = bool(output_section.get("measure", False))
+        output_mapping = _require_mapping(output_section, path, "benchmark.output")
+        output_path = _optional_str(output_mapping, "path", path, prefix="benchmark.output")
+        output_measure = bool(output_mapping.get("measure", False))
     if input_measure and output_measure:
         raise BenchmarkError(f"{path}: only one of input.measure or output.measure can be true")
     if not input_measure and not output_measure:
@@ -99,21 +85,21 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         raise BenchmarkError(
             f"{path}: benchmark.output.path is required when output.measure is true"
         )
-    env = benchmark.get("env") or {}
-    if not isinstance(env, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in env.items()
-    ):
-        raise BenchmarkError(f"{path}: benchmark.env must be a mapping of strings")
+    env = _require_str_mapping(benchmark.get("env") or {}, path, "benchmark.env")
     fixture_specs = _parse_fixture_specs(benchmark, path)
-    tenzir_args = benchmark.get("tenzir_args") or []
-    if not isinstance(tenzir_args, list) or not all(isinstance(item, str) for item in tenzir_args):
-        raise BenchmarkError(f"{path}: benchmark.tenzir_args must be a list of strings")
+    tenzir_args = _require_str_list(
+        benchmark.get("tenzir_args") or [],
+        path,
+        "benchmark.tenzir_args",
+    )
     runner = benchmark.get("runner", "time")
     if not isinstance(runner, str):
         raise BenchmarkError(f"{path}: benchmark.runner must be a string")
-    runtime_section = benchmark.get("runtime") or {}
-    if not isinstance(runtime_section, dict):
-        raise BenchmarkError(f"{path}: benchmark.runtime must be a mapping")
+    runtime_section = _require_mapping(
+        benchmark.get("runtime") or {},
+        path,
+        "benchmark.runtime",
+    )
     warmup_runs = runtime_section.get("warmup_runs", 0)
     measurement_runs = runtime_section.get("measurement_runs", 1)
     timeout_seconds = runtime_section.get("timeout_seconds")
@@ -159,6 +145,47 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     )
 
 
+def _load_yaml_mapping(text: str, path: pathlib.Path, label: str) -> dict[str, object]:
+    try:
+        payload = cast(object, yaml.safe_load(text))
+    except yaml.YAMLError as exc:
+        raise BenchmarkError(f"Failed to parse YAML {label} in {path}: {exc}") from exc
+    if payload is None:
+        return {}
+    if not isinstance(payload, dict):
+        raise BenchmarkError(f"{path}: YAML {label} must be a mapping")
+    return _string_key_mapping(payload, path, label)
+
+
+def _string_key_mapping(
+    value: Mapping[object, object],
+    path: pathlib.Path,
+    label: str,
+) -> dict[str, object]:
+    if not all(isinstance(key, str) for key in value):
+        raise BenchmarkError(f"{path}: {label} keys must be strings")
+    return {cast(str, key): entry for key, entry in value.items()}
+
+
+def _require_mapping(value: object, path: pathlib.Path, label: str) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise BenchmarkError(f"{path}: {label} must be a mapping")
+    return _string_key_mapping(value, path, label)
+
+
+def _require_str_mapping(value: object, path: pathlib.Path, label: str) -> dict[str, str]:
+    mapping = _require_mapping(value, path, label)
+    if not all(isinstance(key, str) and isinstance(entry, str) for key, entry in mapping.items()):
+        raise BenchmarkError(f"{path}: {label} must be a mapping of strings")
+    return {key: cast(str, entry) for key, entry in mapping.items()}
+
+
+def _require_str_list(value: object, path: pathlib.Path, label: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise BenchmarkError(f"{path}: {label} must be a list of strings")
+    return [item for item in value]
+
+
 def _split_frontmatter(text: str, path: pathlib.Path) -> tuple[str, str]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -179,6 +206,21 @@ def _require_str(mapping: dict[str, object], key: str, path: pathlib.Path) -> st
         raise BenchmarkError(f"{path}: missing required key benchmark.{key}")
     if not isinstance(value, str):
         raise BenchmarkError(f"{path}: benchmark.{key} must be a string")
+    return value
+
+
+def _optional_str(
+    mapping: dict[str, object],
+    key: str,
+    path: pathlib.Path,
+    *,
+    prefix: str,
+) -> str | None:
+    value = mapping.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise BenchmarkError(f"{path}: {prefix}.{key} must be a string")
     return value
 
 
@@ -203,10 +245,10 @@ def _normalize_fixture_specs(
 ) -> tuple[FixtureSpec, ...]:
     raw: list[object]
     if isinstance(value, list):
-        raw = value
+        raw = list(value)
     elif isinstance(value, str):
         raw = [value]
-    elif isinstance(value, dict):
+    elif isinstance(value, Mapping):
         raw = [value]
     else:
         raise BenchmarkError(
@@ -221,20 +263,22 @@ def _normalize_fixture_specs(
                 raise BenchmarkError(f"{path}: fixture names must be non-empty strings")
             specs.append(FixtureSpec(name=name))
             continue
-        if not isinstance(entry, dict):
+        if not isinstance(entry, Mapping):
             raise BenchmarkError(
                 f"{path}: fixture entries must be strings or mappings, got {type(entry).__name__}",
             )
-        if len(entry) != 1:
+        entry_mapping = _string_key_mapping(entry, path, "fixture")
+        if len(entry_mapping) != 1:
             raise BenchmarkError(
-                f"{path}: fixture mappings must contain exactly one key, got {list(entry.keys())}",
+                f"{path}: fixture mappings must contain exactly one key, got {list(entry_mapping.keys())}",
             )
-        name, options = next(iter(entry.items()))
-        if not isinstance(name, str) or not name.strip():
+        name, options = next(iter(entry_mapping.items()))
+        if not name.strip():
             raise BenchmarkError(f"{path}: fixture names must be non-empty strings")
-        if not isinstance(options, dict):
-            raise BenchmarkError(
-                f"{path}: fixture options for '{name}' must be a mapping",
+        specs.append(
+            FixtureSpec(
+                name=name.strip(),
+                options=_require_mapping(options, path, f"fixture options for '{name}'"),
             )
-        specs.append(FixtureSpec(name=name.strip(), options=options))
+        )
     return tuple(specs)

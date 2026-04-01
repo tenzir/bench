@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 
@@ -27,41 +27,46 @@ class Report:
 
 def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload: object = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
         return None
     return parse_report_payload(payload, path=path, artifact_id=artifact_id)
 
 
 def parse_report_payload(
-    payload: dict[str, Any],
+    payload: dict[str, object],
     *,
     path: Path,
     artifact_id: str | None = None,
 ) -> Report | None:
     pipeline = payload.get("pipeline")
-    if not pipeline:
+    if not isinstance(pipeline, str) or not pipeline:
         return None
-    build = payload.get("build", {})
-    hardware = payload.get("hardware", {})
+    build = _mapping(payload.get("build"))
+    hardware = _mapping(payload.get("hardware"))
     version = build.get("version")
     target = payload.get("target")
-    hardware_key = hardware.get("key") if isinstance(hardware, dict) else None
-    runtime = payload.get("runtime", {})
+    hardware_key = hardware.get("key")
+    runtime = _mapping(payload.get("runtime"))
     wall_clock = runtime.get("wall_clock")
     rss = runtime.get("max_resident_set_kb")
-    if wall_clock is None or rss is None:
+    wall_clock_value = _as_float(wall_clock)
+    rss_value = _as_int(rss)
+    implementation_id = payload.get("implementation_id")
+    if wall_clock_value is None or rss_value is None:
         return None
     return Report(
         path=path,
         pipeline=pipeline,
         benchmark_id=str(payload.get("benchmark_id") or pipeline),
-        implementation_id=payload.get("implementation_id"),
+        implementation_id=implementation_id if isinstance(implementation_id, str) else None,
         target=target if isinstance(target, str) else None,
         hardware_key=hardware_key if isinstance(hardware_key, str) else None,
-        wall_clock=float(wall_clock),
-        rss_kb=int(rss),
-        build_version=version,
+        wall_clock=wall_clock_value,
+        rss_kb=rss_value,
+        build_version=version if isinstance(version, str) else None,
         artifact_id=artifact_id,
     )
 
@@ -122,6 +127,32 @@ def _artifact_id(directory: Path, file: Path) -> str | None:
     if len(relative.parts) < 5:
         return None
     return relative.parts[-3]
+
+
+def _mapping(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    if not all(isinstance(key, str) for key in value):
+        return {}
+    return cast(dict[str, object], value)
+
+
+def _as_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
 
 
 def _commitish_matches(actual: str, expected: str) -> bool:

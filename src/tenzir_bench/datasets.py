@@ -12,6 +12,7 @@ import urllib.request
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO, Final, Protocol, cast
 
 from .paths import BenchPaths
 
@@ -29,7 +30,7 @@ class DatasetSpec:
 
 class DatasetManager:
     def __init__(self, paths: BenchPaths) -> None:
-        self.paths = paths
+        self.paths: BenchPaths = paths
 
     def prepare(self, force: bool = False) -> None:
         for spec in self._specs():
@@ -49,22 +50,29 @@ class DatasetManager:
         elif download_path != final_path:
             _ensure_parent(final_path)
             if force or not final_path.exists():
-                shutil.copy2(download_path, final_path)
+                _ = shutil.copy2(download_path, final_path)
 
     def _download(self, url: str | Path, destination: Path, force: bool) -> None:
         _ensure_parent(destination)
         if destination.exists() and not force:
             return
-        if isinstance(url, Path) or (isinstance(url, str) and url.startswith("file://")):
-            source = Path(url[7:]) if isinstance(url, str) else url
-            shutil.copy2(source, destination)
+        if isinstance(url, Path):
+            source = url
+            _ = shutil.copy2(source, destination)
+            return
+        if url.startswith("file://"):
+            source = Path(url.removeprefix("file://"))
+            _ = shutil.copy2(source, destination)
             return
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
             temp_path = Path(tmp.name)
         try:
-            with urllib.request.urlopen(url) as response, temp_path.open("wb") as handle:  # type: ignore[arg-type]
+            with (
+                cast(BinaryIO, urllib.request.urlopen(url)) as response,
+                temp_path.open("wb") as handle,
+            ):
                 shutil.copyfileobj(response, handle)
-            shutil.move(str(temp_path), destination)
+            _ = shutil.move(str(temp_path), destination)
         finally:
             if temp_path.exists():
                 temp_path.unlink()
@@ -95,6 +103,7 @@ class DatasetManager:
 
 
 def _suricata_post(download: Path, final: Path, paths: BenchPaths, force: bool) -> None:
+    del paths
     extracted = _decompress_zst(download, final, force=force)
     kv_log = extracted.parent / "eve.kv.log"
     if kv_log.exists() and not force:
@@ -110,15 +119,18 @@ def _suricata_post(download: Path, final: Path, paths: BenchPaths, force: bool) 
             if not line:
                 continue
             try:
-                record = json.loads(line)
+                record = cast(object, json.loads(line))
             except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict):
                 continue
             fields = [f"{key}={record[key]}" for key in keys if key in record]
             if fields:
-                sink.write(" ".join(fields) + "\n")
+                _ = sink.write(" ".join(fields) + "\n")
 
 
 def _zeek_post(download: Path, final: Path, paths: BenchPaths, force: bool) -> None:
+    del paths
     extracted = _decompress_zst(download, final, force=force)
     conn_log = extracted.parent / "conn.log"
     if not conn_log.exists() or force:
@@ -138,13 +150,13 @@ def _decompress_zst(source: Path, destination: Path, force: bool) -> Path:
     if not zstd:
         raise RuntimeError("zstd binary is required to decompress datasets")
     _ensure_parent(destination)
-    subprocess.run([zstd, "-d", "-f", "-o", str(destination), str(source)], check=True)
+    _ = subprocess.run([zstd, "-d", "-f", "-o", str(destination), str(source)], check=True)
     return destination
 
 
 def _extract_conn_log(source: Path, destination: Path) -> None:
     _ensure_parent(destination)
-    meta_lines = []
+    meta_lines: list[str] = []
     writing = False
     with (
         source.open("r", encoding="utf-8", errors="ignore") as handle,
@@ -159,22 +171,22 @@ def _extract_conn_log(source: Path, destination: Path) -> None:
                     writing = line.split("\t", 1)[1].strip() == "conn"
                     if writing:
                         for meta in meta_lines:
-                            out.write(meta)
-                        out.write(line)
+                            _ = out.write(meta)
+                        _ = out.write(line)
                     continue
                 if not meta_lines:
                     meta_lines.append(line)
                 elif writing:
-                    out.write(line)
+                    _ = out.write(line)
                 else:
                     meta_lines.append(line)
                 continue
             if writing:
-                out.write(line)
+                _ = out.write(line)
 
 
 def _convert_conn_to_csv(conn_log: Path, csv_path: Path, kv_path: Path) -> None:
-    fields = [
+    fields: Final[list[str]] = [
         "ts",
         "uid",
         "id.orig_h",
@@ -194,8 +206,8 @@ def _convert_conn_to_csv(conn_log: Path, csv_path: Path, kv_path: Path) -> None:
     ]
     _ensure_parent(csv_path)
     _ensure_parent(kv_path)
-    indices = []
-    headers = []
+    indices: list[int] = []
+    headers: list[str] = []
     with (
         conn_log.open("r", encoding="utf-8", errors="ignore") as source,
         csv_path.open("w", newline="", encoding="utf-8") as csv_file,
@@ -208,21 +220,29 @@ def _convert_conn_to_csv(conn_log: Path, csv_path: Path, kv_path: Path) -> None:
                 file_fields = line.split("\t")[1:]
                 indices = [file_fields.index(f) for f in fields if f in file_fields]
                 headers = [file_fields[i] for i in indices]
-                writer.writerow(headers)
+                _write_csv_row(writer, headers)
                 continue
             if line.startswith("#") or not headers:
                 continue
             values = line.split("\t")
             selected = [values[i] if i < len(values) else "" for i in indices]
-            writer.writerow(selected)
+            _write_csv_row(writer, selected)
             kv_pairs = [
                 f"{key}={value}"
                 for key, value in zip(headers, selected, strict=False)
                 if value and value != "-"
             ]
             if kv_pairs:
-                kv_file.write(" ".join(kv_pairs) + "\n")
+                _ = kv_file.write(" ".join(kv_pairs) + "\n")
 
 
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+
+
+class _CsvWriter(Protocol):
+    def writerow(self, row: Iterable[object], /) -> object: ...
+
+
+def _write_csv_row(writer: _CsvWriter, row: list[str]) -> None:
+    _ = writer.writerow(row)

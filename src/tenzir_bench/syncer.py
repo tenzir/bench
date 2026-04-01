@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from pathlib import PurePosixPath
 
 import boto3
 
-from .metadata import GitHubMetadata
+from .metadata import GitHubMetadata, MainCommitMetadata, ReleaseMetadata
 from .paths import BenchPaths
 
 _LOG = logging.getLogger(__name__)
@@ -65,8 +65,8 @@ def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:
 
 
 def _reference_prefixes(
-    releases: list[dict[str, object]],
-    commits: list[dict[str, object]],
+    releases: Sequence[ReleaseMetadata],
+    commits: Sequence[MainCommitMetadata],
 ) -> set[PurePosixPath]:
     prefixes = {
         PurePosixPath("refs") / "tags" / tag

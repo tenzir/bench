@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Generic, TypeVar, cast
+from typing import Generic, TypeVar, TypedDict, cast
 
 from github import Github
 
@@ -17,6 +17,17 @@ _LOG = logging.getLogger(__name__)
 DEFAULT_TTL_SECONDS = 30 * 60
 REPOSITORY = "tenzir/tenzir"
 _T = TypeVar("_T")
+
+
+class ReleaseMetadata(TypedDict):
+    tag: str
+    published_at: str | None
+    target: str | None
+
+
+class MainCommitMetadata(TypedDict):
+    sha: str
+    date: str | None
 
 
 @dataclass
@@ -53,52 +64,65 @@ class GitHubMetadata:
         self.cache_dir = cache_dir
         token = os.getenv("GITHUB_TOKEN")
         self.client = Github(login_or_token=token) if token else Github()
-        self.releases_cache: MetadataCache[list[dict[str, Any]]] = MetadataCache(
+        self.releases_cache: MetadataCache[list[ReleaseMetadata]] = MetadataCache(
             cache_dir / "github_releases.json", ttl_seconds
         )
-        self.main_cache: MetadataCache[list[dict[str, Any]]] = MetadataCache(
+        self.main_cache: MetadataCache[list[MainCommitMetadata]] = MetadataCache(
             cache_dir / "github_main.json", ttl_seconds
         )
 
-    def fetch_releases(self, refresh: bool = False, limit: int = 20) -> list[dict[str, Any]]:
+    def fetch_releases(self, refresh: bool = False, limit: int = 20) -> list[ReleaseMetadata]:
         cached = self.releases_cache.load(refresh=refresh)
         if cached is not None:
             return cached
         _LOG.info("Fetching release metadata from GitHub")
         repo = self.client.get_repo(REPOSITORY)
-        releases = []
+        releases: list[ReleaseMetadata] = []
         for index, release in enumerate(repo.get_releases()):
             if index >= limit:
                 break
+            tag_name = getattr(release, "tag_name", None)
+            if not isinstance(tag_name, str) or not tag_name:
+                continue
+            published_at = _isoformat_or_none(getattr(release, "published_at", None))
+            target_commitish = getattr(release, "target_commitish", None)
             releases.append(
                 {
-                    "tag": release.tag_name,
-                    "published_at": release.published_at.isoformat()
-                    if release.published_at
-                    else None,
-                    "target": release.target_commitish,
+                    "tag": tag_name,
+                    "published_at": published_at,
+                    "target": target_commitish if isinstance(target_commitish, str) else None,
                 },
             )
         self.releases_cache.save(releases)
         return releases
 
-    def fetch_main_commits(self, refresh: bool = False, limit: int = 20) -> list[dict[str, Any]]:
+    def fetch_main_commits(
+        self, refresh: bool = False, limit: int = 20
+    ) -> list[MainCommitMetadata]:
         cached = self.main_cache.load(refresh=refresh)
         if cached is not None:
             return cached
         _LOG.info("Fetching main branch metadata from GitHub")
         repo = self.client.get_repo(REPOSITORY)
-        commits = []
+        commits: list[MainCommitMetadata] = []
         for index, commit in enumerate(repo.get_commits(sha="main")):
             if index >= limit:
                 break
+            sha = getattr(commit, "sha", None)
+            if not isinstance(sha, str) or not sha:
+                continue
+            commit_obj = getattr(commit, "commit", None)
+            author = getattr(commit_obj, "author", None)
+            date = _isoformat_or_none(getattr(author, "date", None))
             commits.append(
                 {
-                    "sha": commit.sha,
-                    "date": commit.commit.author.date.isoformat()
-                    if commit.commit.author and commit.commit.author.date
-                    else None,
+                    "sha": sha,
+                    "date": date,
                 },
             )
         self.main_cache.save(commits)
         return commits
+
+
+def _isoformat_or_none(value: object) -> str | None:
+    return value.isoformat() if isinstance(value, datetime) else None

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .hardware import current_hardware_key
-from .metadata import GitHubMetadata
+from .metadata import GitHubMetadata, MainCommitMetadata, ReleaseMetadata
 from .paths import BenchPaths
 from .reports import Report, load_reports, select_fastest
 from .references import load_reference_reports
@@ -75,18 +75,18 @@ def evaluate(paths: BenchPaths, runs_dir: Path, base_dir: Path | None, compact: 
 
 
 def _latest_release(metadata: GitHubMetadata) -> str | None:
-    releases = metadata.fetch_releases()
+    releases: list[ReleaseMetadata] = metadata.fetch_releases()
     if not releases:
         _LOG.warning("No releases found when querying GitHub")
         return None
-    return releases[0]["tag"]
+    return releases[0].get("tag")
 
 
 def _latest_main(metadata: GitHubMetadata) -> str | None:
-    commits = metadata.fetch_main_commits()
+    commits: list[MainCommitMetadata] = metadata.fetch_main_commits()
     if not commits:
         return None
-    return commits[0]["sha"]
+    return commits[0].get("sha")
 
 
 def _reports_by_pipeline(
@@ -110,10 +110,10 @@ def _single_hardware(reports: Mapping[str, Report]) -> str | None:
 
 
 def _print_compact_table(
-    pipelines,
-    candidate_reports,
-    baseline_reports,
-    main_reports,
+    pipelines: list[str],
+    candidate_reports: Mapping[str, Report],
+    baseline_reports: Mapping[str, Report],
+    main_reports: Mapping[str, Report],
 ) -> None:
     header = (
         f"{'pipeline':40} {'base(s)':>10} {'cand(s)':>10} {'Δbase(s)':>10} {'Δbase(%)':>10}"
@@ -138,7 +138,12 @@ def _print_compact_table(
         )
 
 
-def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports) -> None:
+def _print_detailed(
+    pipelines: list[str],
+    candidate_reports: Mapping[str, Report],
+    baseline_reports: Mapping[str, Report],
+    main_reports: Mapping[str, Report],
+) -> None:
     for pipeline in pipelines:
         print(f"Pipeline: {pipeline}")
         cand = candidate_reports.get(pipeline)
@@ -163,7 +168,7 @@ def _print_detailed(pipelines, candidate_reports, baseline_reports, main_reports
         print()
 
 
-def _format_delta(candidate, reference) -> str:
+def _format_delta(candidate: Report | None, reference: Report | None) -> str:
     if not candidate or not reference:
         return "-"
     delta = candidate.wall_clock - reference.wall_clock
@@ -171,19 +176,19 @@ def _format_delta(candidate, reference) -> str:
     return f"{sign}{delta:.2f}"
 
 
-def _delta(candidate, reference) -> float:
+def _delta(candidate: Report | None, reference: Report | None) -> float:
     if not candidate or not reference:
         return 0.0
     return candidate.wall_clock - reference.wall_clock
 
 
-def _percent_delta(candidate, reference) -> float | None:
+def _percent_delta(candidate: Report | None, reference: Report | None) -> float | None:
     if not candidate or not reference or reference.wall_clock == 0:
         return None
     return ((candidate.wall_clock - reference.wall_clock) / reference.wall_clock) * 100.0
 
 
-def _format_percent(candidate, reference) -> str:
+def _format_percent(candidate: Report | None, reference: Report | None) -> str:
     pct = _percent_delta(candidate, reference)
     if pct is None:
         return "-"
@@ -191,13 +196,13 @@ def _format_percent(candidate, reference) -> str:
     return f"{sign}{pct:.1f}"
 
 
-def _rss_delta(candidate, reference) -> int:
+def _rss_delta(candidate: Report | None, reference: Report | None) -> int:
     if not candidate or not reference:
         return 0
     return (candidate.rss_kb or 0) - (reference.rss_kb or 0)
 
 
-def _format_delta_detail(candidate, reference) -> str:
+def _format_delta_detail(candidate: Report | None, reference: Report | None) -> str:
     if not candidate or not reference:
         return "-"
     delta = candidate.wall_clock - reference.wall_clock
@@ -205,7 +210,7 @@ def _format_delta_detail(candidate, reference) -> str:
     return f"{sign}{delta:.2f}s"
 
 
-def _format_percent_detail(candidate, reference) -> str:
+def _format_percent_detail(candidate: Report | None, reference: Report | None) -> str:
     pct = _percent_delta(candidate, reference)
     if pct is None:
         return "-"
@@ -213,7 +218,7 @@ def _format_percent_detail(candidate, reference) -> str:
     return f"{sign}{pct:.1f}%"
 
 
-def _format_rss_delta(candidate, reference) -> str:
+def _format_rss_delta(candidate: Report | None, reference: Report | None) -> str:
     if not candidate or not reference:
         return "-"
     delta = (candidate.rss_kb or 0) - (reference.rss_kb or 0)
