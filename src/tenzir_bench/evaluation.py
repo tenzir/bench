@@ -132,10 +132,11 @@ def _print_compact_table(
         main_val = f"{main.wall_clock:.2f}" if main else "-"
         delta_main = _format_delta(cand, main)
         delta_main_pct = _format_percent(cand, main)
-        print(
+        row = (
             f"{pipeline:40} {base_val:>10} {cand_val:>10} {delta_base:>10} {delta_base_pct:>10}"
-            f" {main_val:>10} {delta_main:>10} {delta_main_pct:>10}",
+            f" {main_val:>10} {delta_main:>10} {delta_main_pct:>10}"
         )
+        print(row)
 
 
 def _print_detailed(
@@ -154,17 +155,21 @@ def _print_detailed(
         else:
             print("  Candidate: missing")
         if base:
-            print(
-                f"  Baseline:  wall={base.wall_clock:.2f}s rss={base.rss_kb}k "
+            baseline_row = (
+                "  Baseline:  "
+                f"wall={base.wall_clock:.2f}s rss={base.rss_kb}k "
                 f"Δ={_format_delta_detail(cand, base)} ({_format_percent_detail(cand, base)}) "
-                f"Δrss={_format_rss_delta(cand, base)}",
+                f"Δrss={_format_rss_delta(cand, base)}"
             )
+            print(baseline_row)
         if main:
-            print(
-                f"  Main:      wall={main.wall_clock:.2f}s rss={main.rss_kb}k "
+            main_row = (
+                "  Main:      "
+                f"wall={main.wall_clock:.2f}s rss={main.rss_kb}k "
                 f"Δ={_format_delta_detail(cand, main)} ({_format_percent_detail(cand, main)}) "
-                f"Δrss={_format_rss_delta(cand, main)}",
+                f"Δrss={_format_rss_delta(cand, main)}"
             )
+            print(main_row)
         print()
 
 
@@ -174,12 +179,6 @@ def _format_delta(candidate: Report | None, reference: Report | None) -> str:
     delta = candidate.wall_clock - reference.wall_clock
     sign = "+" if delta > 0 else ""
     return f"{sign}{delta:.2f}"
-
-
-def _delta(candidate: Report | None, reference: Report | None) -> float:
-    if not candidate or not reference:
-        return 0.0
-    return candidate.wall_clock - reference.wall_clock
 
 
 def _percent_delta(candidate: Report | None, reference: Report | None) -> float | None:
@@ -194,12 +193,6 @@ def _format_percent(candidate: Report | None, reference: Report | None) -> str:
         return "-"
     sign = "+" if pct > 0 else ""
     return f"{sign}{pct:.1f}"
-
-
-def _rss_delta(candidate: Report | None, reference: Report | None) -> int:
-    if not candidate or not reference:
-        return 0
-    return (candidate.rss_kb or 0) - (reference.rss_kb or 0)
 
 
 def _format_delta_detail(candidate: Report | None, reference: Report | None) -> str:

@@ -508,7 +508,7 @@ def _display_label(info: BuildInfo, path: Path, tenzir_args: Sequence[str]) -> s
     return f"{label} {' '.join(tenzir_args)}"
 
 
-def _unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]:
+def unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]:
     counts: dict[str, int] = {}
     for label in labels:
         counts[label] = counts.get(label, 0) + 1
@@ -520,6 +520,9 @@ def _unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]
         digest = hashlib.sha256(str(binary).encode("utf-8")).hexdigest()[:8]
         unique.append(f"{label}[{digest}]")
     return unique
+
+
+_unique_labels = unique_labels
 
 
 def _cache_key(

@@ -49,7 +49,7 @@ class BenchmarkDefinition:
 
 def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     raw_text = path.read_text(encoding="utf-8")
-    frontmatter, body = _split_frontmatter(raw_text, path)
+    frontmatter, body = split_frontmatter(raw_text, path)
     data = _load_yaml_mapping(frontmatter, path, "frontmatter")
     benchmark = _require_mapping(data.get("benchmark"), path, "benchmark")
     benchmark_id = _require_str(benchmark, "id", path)
@@ -86,7 +86,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
             f"{path}: benchmark.output.path is required when output.measure is true"
         )
     env = _require_str_mapping(benchmark.get("env") or {}, path, "benchmark.env")
-    fixture_specs = _parse_fixture_specs(benchmark, path)
+    fixture_specs = parse_fixture_specs(benchmark, path)
     tenzir_args = _require_str_list(
         benchmark.get("tenzir_args") or [],
         path,
@@ -152,9 +152,9 @@ def _load_yaml_mapping(text: str, path: pathlib.Path, label: str) -> dict[str, o
         raise BenchmarkError(f"Failed to parse YAML {label} in {path}: {exc}") from exc
     if payload is None:
         return {}
-    if not isinstance(payload, dict):
+    if not isinstance(payload, Mapping):
         raise BenchmarkError(f"{path}: YAML {label} must be a mapping")
-    return _string_key_mapping(payload, path, label)
+    return _string_key_mapping(cast(Mapping[object, object], payload), path, label)
 
 
 def _string_key_mapping(
@@ -162,31 +162,42 @@ def _string_key_mapping(
     path: pathlib.Path,
     label: str,
 ) -> dict[str, object]:
-    if not all(isinstance(key, str) for key in value):
-        raise BenchmarkError(f"{path}: {label} keys must be strings")
-    return {cast(str, key): entry for key, entry in value.items()}
+    result: dict[str, object] = {}
+    for key, entry in value.items():
+        if not isinstance(key, str):
+            raise BenchmarkError(f"{path}: {label} keys must be strings")
+        result[key] = entry
+    return result
 
 
 def _require_mapping(value: object, path: pathlib.Path, label: str) -> dict[str, object]:
     if not isinstance(value, Mapping):
         raise BenchmarkError(f"{path}: {label} must be a mapping")
-    return _string_key_mapping(value, path, label)
+    return _string_key_mapping(cast(Mapping[object, object], value), path, label)
 
 
 def _require_str_mapping(value: object, path: pathlib.Path, label: str) -> dict[str, str]:
     mapping = _require_mapping(value, path, label)
-    if not all(isinstance(key, str) and isinstance(entry, str) for key, entry in mapping.items()):
-        raise BenchmarkError(f"{path}: {label} must be a mapping of strings")
-    return {key: cast(str, entry) for key, entry in mapping.items()}
+    result: dict[str, str] = {}
+    for key, entry in mapping.items():
+        if not isinstance(entry, str):
+            raise BenchmarkError(f"{path}: {label} must be a mapping of strings")
+        result[key] = entry
+    return result
 
 
 def _require_str_list(value: object, path: pathlib.Path, label: str) -> list[str]:
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+    if not isinstance(value, list):
         raise BenchmarkError(f"{path}: {label} must be a list of strings")
-    return [item for item in value]
+    result: list[str] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, str):
+            raise BenchmarkError(f"{path}: {label} must be a list of strings")
+        result.append(item)
+    return result
 
 
-def _split_frontmatter(text: str, path: pathlib.Path) -> tuple[str, str]:
+def split_frontmatter(text: str, path: pathlib.Path) -> tuple[str, str]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise BenchmarkError(
@@ -224,7 +235,7 @@ def _optional_str(
     return value
 
 
-def _parse_fixture_specs(
+def parse_fixture_specs(
     benchmark: dict[str, object],
     path: pathlib.Path,
 ) -> tuple[FixtureSpec, ...]:
@@ -245,7 +256,7 @@ def _normalize_fixture_specs(
 ) -> tuple[FixtureSpec, ...]:
     raw: list[object]
     if isinstance(value, list):
-        raw = list(value)
+        raw = list(cast(list[object], value))
     elif isinstance(value, str):
         raw = [value]
     elif isinstance(value, Mapping):
@@ -267,7 +278,7 @@ def _normalize_fixture_specs(
             raise BenchmarkError(
                 f"{path}: fixture entries must be strings or mappings, got {type(entry).__name__}",
             )
-        entry_mapping = _string_key_mapping(entry, path, "fixture")
+        entry_mapping = _string_key_mapping(cast(Mapping[object, object], entry), path, "fixture")
         if len(entry_mapping) != 1:
             raise BenchmarkError(
                 f"{path}: fixture mappings must contain exactly one key, got {list(entry_mapping.keys())}",

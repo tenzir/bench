@@ -6,7 +6,7 @@ import json
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TypeAlias
+from typing import TypeAlias, cast
 from urllib.parse import urlparse
 
 import boto3
@@ -21,6 +21,17 @@ class ReferenceDestination:
 
 
 ReportIdentity: TypeAlias = tuple[str, str]
+
+
+def _string_mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    result: dict[str, object] = {}
+    for key, entry in cast(Mapping[object, object], value).items():
+        if not isinstance(key, str):
+            return None
+        result[key] = entry
+    return result
 
 
 def parse_destination(destination: str, *, default_bucket: str) -> ReferenceDestination:
@@ -105,10 +116,10 @@ def download_reference_reports(
             if not isinstance(key, str) or not key.endswith(".json"):
                 continue
             body = s3.get_object(Bucket=resolved.bucket, Key=key)["Body"].read().decode("utf-8")
-            report = parse_report_payload(
-                json.loads(body),
-                path=Path(f"s3://{resolved.bucket}/{key}"),
-            )
+            payload = _string_mapping(cast(object, json.loads(body)))
+            if payload is None:
+                continue
+            report = parse_report_payload(payload, path=Path(f"s3://{resolved.bucket}/{key}"))
             if report is None:
                 continue
             benchmark_id, implementation_id = report_identity(report)

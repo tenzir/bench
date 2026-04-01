@@ -121,9 +121,11 @@ def run(
         if not contexts:
             build_version = executor.build_info().version or "unknown"
             click.echo(
-                "No runnable benchmarks matched the selection "
-                f"for Tenzir build {build_version}. Check benchmark selectors "
-                "and min_version/max_version constraints.",
+                (
+                    f"No runnable benchmarks matched the selection for Tenzir build "
+                    f"{build_version}. Check benchmark selectors and "
+                    "min_version/max_version constraints."
+                ),
             )
             return
         generated_reports: list[Path] = []
@@ -246,8 +248,10 @@ def _detect_repo_root(tenzir: Path) -> Path:
         if root := _find_repo_root(start):
             return root
     raise click.ClickException(
-        "Unable to locate a repository root containing bench/. "
-        "Run the command from a tenzir checkout or point --tenzir-bin at a binary inside one.",
+        (
+            "Unable to locate a repository root containing bench/. Run the command "
+            "from a tenzir checkout or point --tenzir-bin at a binary inside one."
+        ),
     )
 
 
@@ -348,9 +352,11 @@ def _render_run_summary(reports: Sequence[Report]) -> str:
     ]
     for report in reports:
         lines.append(
-            f"{report.pipeline:<{benchmark_width}}  "
-            f"{report.wall_clock:>10.2f}s  "
-            f"{report.rss_kb / 1024:>9.0f} MB",
+            (
+                f"{report.pipeline:<{benchmark_width}}  "
+                f"{report.wall_clock:>10.2f}s  "
+                f"{report.rss_kb / 1024:>9.0f} MB"
+            ),
         )
     return "\n".join(lines)
 

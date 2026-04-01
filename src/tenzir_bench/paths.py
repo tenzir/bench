@@ -16,7 +16,7 @@ class BenchPaths:
     """Resolve cache, state, and config directories with XDG compatibility."""
 
     dirs: PlatformDirs
-    ensure_dir: Callable[[Path], Path] = staticmethod(lambda path: path)
+    ensure_dir: Callable[[Path], Path] = field(default=lambda path: path)
     cache_root: Path = field(default_factory=Path)
     state_root: Path = field(default_factory=Path)
 

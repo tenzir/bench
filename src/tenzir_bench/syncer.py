@@ -7,6 +7,9 @@ from collections.abc import Iterable, Sequence
 from pathlib import PurePosixPath
 
 import boto3
+from mypy_boto3_s3.client import S3Client
+from mypy_boto3_s3.paginator import ListObjectsV2Paginator
+from mypy_boto3_s3.type_defs import ListObjectsV2OutputTypeDef, ObjectTypeDef
 
 from .metadata import GitHubMetadata, MainCommitMetadata, ReleaseMetadata
 from .paths import BenchPaths
@@ -18,9 +21,9 @@ DEFAULT_BUCKET = "tenzir-bench-reports-dev"
 
 class ResultSyncer:
     def __init__(self, paths: BenchPaths, bucket: str = DEFAULT_BUCKET) -> None:
-        self.paths = paths
-        self.bucket = bucket
-        self.s3 = boto3.client("s3")
+        self.paths: BenchPaths = paths
+        self.bucket: str = bucket
+        self.s3: S3Client = boto3.client("s3")
 
     def sync_results(
         self,
@@ -32,11 +35,13 @@ class ResultSyncer:
             prefixes: Iterable[PurePosixPath] = (PurePosixPath(""),)
         else:
             prefixes = sorted(reference_prefixes or {PurePosixPath("")})
-        paginator = self.s3.get_paginator("list_objects_v2")
+        paginator: ListObjectsV2Paginator = self.s3.get_paginator("list_objects_v2")
         for prefix in prefixes:
             for page in paginator.paginate(Bucket=self.bucket, Prefix=str(prefix)):
-                for obj in page.get("Contents", []):
-                    key = obj.get("Key")
+                typed_page: ListObjectsV2OutputTypeDef = page
+                for obj in typed_page.get("Contents", []):
+                    typed_obj: ObjectTypeDef = obj
+                    key = typed_obj.get("Key")
                     if not isinstance(key, str):
                         continue
                     if key.endswith("/"):
@@ -71,10 +76,10 @@ def _reference_prefixes(
     prefixes = {
         PurePosixPath("refs") / "tags" / tag
         for release in releases
-        if isinstance((tag := release.get("tag")), str) and tag
+        if (tag := release["tag"])
     }
     if commits:
-        sha = commits[0].get("sha")
-        if isinstance(sha, str) and sha:
+        sha = commits[0]["sha"]
+        if sha:
             prefixes.add(PurePosixPath("refs") / "main" / sha)
     return prefixes

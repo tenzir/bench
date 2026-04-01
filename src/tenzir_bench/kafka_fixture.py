@@ -143,7 +143,7 @@ def _reset_topic(
     partitions: int,
     replication_factor: int,
 ) -> None:
-    _run(
+    _ = _run(
         [
             *base_args,
             "exec",
@@ -160,7 +160,7 @@ def _reset_topic(
         description=f"delete kafka topic {topic}",
         check=False,
     )
-    _run(
+    _ = _run(
         [
             *base_args,
             "exec",
@@ -213,26 +213,28 @@ def _publish_dataset(
             raise RuntimeError("failed to open stdin for kafka dataset publisher")
         with input_path.open("rb") as handle:
             for _ in range(_DATASET_REPETITIONS):
-                handle.seek(0)
-                shutil.copyfileobj(handle, process.stdin)
+                _ = handle.seek(0)
+                _ = shutil.copyfileobj(handle, process.stdin)
         process.stdin.close()
         stdout, stderr = process.communicate()
     except Exception:
         process.kill()
-        process.wait()
+        _ = process.wait()
         raise
     if process.returncode == 0:
         return
     detail = (stderr or stdout or b"").decode("utf-8", errors="replace").strip() or "no output"
     raise RuntimeError(
-        "publish benchmark dataset to kafka topic "
-        f"{topic} failed (exit code {process.returncode}): {detail}",
+        (
+            "publish benchmark dataset to kafka topic "
+            f"{topic} failed (exit code {process.returncode}): {detail}"
+        ),
     )
 
 
 def _teardown(base_args: list[str], *, cwd: Path) -> None:
     try:
-        _run(
+        _ = _run(
             [*base_args, "down", "--volumes", "--remove-orphans"],
             cwd=cwd,
             description="docker compose down",
@@ -264,19 +266,19 @@ def kafka() -> FixtureHandle:
         compose_file=compose_file,
         project_name=_project_name(context.definition.path),
     )
-    _run(
+    _ = _run(
         [*base_args, "up", "-d", options.service],
         cwd=cwd,
         description="docker compose up for kafka fixture",
     )
-    _wait_for_cluster(
+    _ = _wait_for_cluster(
         base_args,
         cwd=cwd,
         service=options.service,
         timeout_seconds=options.wait_timeout_seconds,
         poll_interval_seconds=options.wait_poll_interval_seconds,
     )
-    _reset_topic(
+    _ = _reset_topic(
         base_args,
         cwd=cwd,
         service=options.service,

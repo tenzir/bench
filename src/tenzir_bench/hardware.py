@@ -7,10 +7,29 @@ import platform
 import re
 import socket
 import subprocess
-from typing import Any
+from typing import TypedDict
 
 
-def environment_snapshot() -> dict[str, Any]:
+class OsSnapshot(TypedDict):
+    name: str
+    release: str
+    version: str
+
+
+class HardwareSnapshot(TypedDict):
+    runner_class: str | None
+    architecture: str
+    cpu_family: str
+    cores: int | None
+
+
+class EnvironmentSnapshot(TypedDict):
+    hostname: str
+    os: OsSnapshot
+    hardware: HardwareSnapshot
+
+
+def environment_snapshot() -> EnvironmentSnapshot:
     cpu_family = _cpu_family()
     arch = platform.machine().lower() or "unknown"
     cores = os.cpu_count()
@@ -35,8 +54,8 @@ def current_hardware_key() -> str:
     return hardware_key(environment_snapshot())
 
 
-def hardware_key(snapshot: dict[str, Any]) -> str:
-    hardware = snapshot.get("hardware", {})
+def hardware_key(snapshot: EnvironmentSnapshot) -> str:
+    hardware = snapshot["hardware"]
     runner_class = _slug(hardware.get("runner_class") or "local")
     arch = _slug(hardware.get("architecture") or "unknown")
     cpu_family = _slug(hardware.get("cpu_family") or "unknown")

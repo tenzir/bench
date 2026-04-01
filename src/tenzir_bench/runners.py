@@ -9,7 +9,7 @@ import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, override
 
 _LOG = logging.getLogger(__name__)
 
@@ -31,16 +31,18 @@ class Runner:
     def run(
         self, command: Sequence[str], env: Mapping[str, str], timeout: int | None
     ) -> RunnerMetrics:
+        del command, env, timeout
         raise NotImplementedError
 
 
 class TimeRunner(Runner):
-    name = "time"
+    name: ClassVar[str] = "time"
 
     def __init__(self) -> None:
         time_bin = shutil.which("time") or "/usr/bin/time"
-        self.time_bin = time_bin
+        self.time_bin: str = time_bin
 
+    @override
     def run(
         self, command: Sequence[str], env: Mapping[str, str], timeout: int | None
     ) -> RunnerMetrics:
@@ -50,18 +52,17 @@ class TimeRunner(Runner):
         try:
             full_cmd = [self.time_bin, "-f", fmt, "-o", metrics_path, *command]
             _LOG.debug("Executing: %s", full_cmd)
-            try:
-                subprocess.run(
-                    full_cmd,
-                    check=True,
-                    env=env,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=timeout,
-                )
-            except subprocess.CalledProcessError as exc:
-                raise RuntimeError(exc.stderr.strip() or str(exc)) from exc
+            proc = subprocess.run(
+                full_cmd,
+                check=False,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=timeout,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or f"runner exited with {proc.returncode}")
             metrics = _parse_time_metrics(metrics_path)
             return RunnerMetrics(
                 wall_clock=float(metrics["elapsed"]),

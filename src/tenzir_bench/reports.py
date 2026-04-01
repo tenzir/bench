@@ -6,9 +6,11 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import cast
 
 _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
+_HEX_DIGITS = "0123456789abcdefABCDEF"
 
 
 @dataclass
@@ -27,12 +29,13 @@ class Report:
 
 def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
     try:
-        payload: object = json.loads(path.read_text(encoding="utf-8"))
+        payload = cast(object, json.loads(path.read_text(encoding="utf-8")))
     except json.JSONDecodeError:
         return None
-    if not isinstance(payload, dict):
+    payload_mapping = _mapping(payload)
+    if payload_mapping is None:
         return None
-    return parse_report_payload(payload, path=path, artifact_id=artifact_id)
+    return parse_report_payload(payload_mapping, path=path, artifact_id=artifact_id)
 
 
 def parse_report_payload(
@@ -44,12 +47,12 @@ def parse_report_payload(
     pipeline = payload.get("pipeline")
     if not isinstance(pipeline, str) or not pipeline:
         return None
-    build = _mapping(payload.get("build"))
-    hardware = _mapping(payload.get("hardware"))
+    build = _mapping(payload.get("build")) or {}
+    hardware = _mapping(payload.get("hardware")) or {}
     version = build.get("version")
     target = payload.get("target")
     hardware_key = hardware.get("key")
-    runtime = _mapping(payload.get("runtime"))
+    runtime = _mapping(payload.get("runtime")) or {}
     wall_clock = runtime.get("wall_clock")
     rss = runtime.get("max_resident_set_kb")
     wall_clock_value = _as_float(wall_clock)
@@ -126,15 +129,19 @@ def _artifact_id(directory: Path, file: Path) -> str | None:
         return None
     if len(relative.parts) < 5:
         return None
-    return relative.parts[-3]
+    artifact = relative.parts[-3]
+    return artifact
 
 
-def _mapping(value: object) -> dict[str, object]:
-    if not isinstance(value, dict):
-        return {}
-    if not all(isinstance(key, str) for key in value):
-        return {}
-    return cast(dict[str, object], value)
+def _mapping(value: object) -> dict[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    result: dict[str, object] = {}
+    for key, entry in cast(Mapping[object, object], value).items():
+        if not isinstance(key, str):
+            return None
+        result[key] = entry
+    return result
 
 
 def _as_float(value: object) -> float | None:
@@ -158,7 +165,7 @@ def _as_int(value: object) -> int | None:
 def _commitish_matches(actual: str, expected: str) -> bool:
     if not _looks_like_commitish(expected):
         return False
-    actual_tokens = _COMMITISH_RE.findall(actual)
+    actual_tokens: list[str] = _COMMITISH_RE.findall(actual)
     for token in actual_tokens:
         if expected.startswith(token) or token.startswith(expected):
             return True
@@ -166,4 +173,4 @@ def _commitish_matches(actual: str, expected: str) -> bool:
 
 
 def _looks_like_commitish(value: str) -> bool:
-    return len(value) >= 7 and all(char in "0123456789abcdefABCDEF" for char in value)
+    return len(value) >= 7 and all(char in _HEX_DIGITS for char in value)

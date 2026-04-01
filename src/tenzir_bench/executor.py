@@ -289,24 +289,21 @@ class BenchmarkExecutor:
     def _validate_invocation(self) -> None:
         if self._validated_invocation:
             return
-        try:
-            _ = subprocess.run(
-                _tenzir_command(
-                    self.tenzir_bin,
-                    self.tenzir_args,
-                    pipeline="version | select version | write_ndjson",
-                ),
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as exc:
-            stderr = cast(str, exc.stderr) if isinstance(exc.stderr, str) else ""
-            stdout = cast(str, exc.stdout) if isinstance(exc.stdout, str) else ""
-            message = stderr.strip() or stdout.strip() or str(exc)
+        proc = subprocess.run(
+            _tenzir_command(
+                self.tenzir_bin,
+                self.tenzir_args,
+                pipeline="version | select version | write_ndjson",
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            message = proc.stderr.strip() or proc.stdout.strip() or str(proc.returncode)
             raise RuntimeError(
                 f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}"
-            ) from exc
+            )
         self._validated_invocation = True
 
     def _print_dry_run_invocation(self, context: BenchmarkContext) -> None:
@@ -396,23 +393,6 @@ class BuildInfo:
     @property
     def build_id(self) -> str:
         return self.version or "unknown"
-
-
-def _discover_files(pattern: str | None) -> list[Path]:
-    root = Path("benchmarks")
-    if pattern:
-        candidate = Path(pattern)
-        if candidate.exists():
-            return [candidate.resolve()]
-    if not root.exists():
-        return []
-    files = sorted(root.rglob("*.tql"))
-    if pattern:
-        from fnmatch import fnmatch
-
-        files = [f for f in files if fnmatch(str(f), pattern)]
-    return files
-
 
 def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
     try:

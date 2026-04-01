@@ -19,6 +19,11 @@ REPOSITORY = "tenzir/tenzir"
 _T = TypeVar("_T")
 
 
+class CacheEnvelope(TypedDict, Generic[_T]):
+    fetched_at: str
+    data: _T
+
+
 class ReleaseMetadata(TypedDict):
     tag: str
     published_at: str | None
@@ -39,31 +44,34 @@ class MetadataCache(Generic[_T]):
         if not self.path.exists() or refresh:
             return None
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            raw = cast(object, json.loads(self.path.read_text(encoding="utf-8")))
         except json.JSONDecodeError:
             return None
-        timestamp = payload.get("fetched_at")
+        if not isinstance(raw, dict):
+            return None
+        payload = cast(CacheEnvelope[_T], cast(object, raw))
+        timestamp = payload["fetched_at"]
         if not timestamp:
             return None
         fetched_at = datetime.fromisoformat(timestamp)
         if datetime.now(UTC) - fetched_at > timedelta(seconds=self.ttl_seconds):
             return None
-        return cast(_T | None, payload.get("data"))
+        return payload["data"]
 
     def save(self, data: _T) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
+        payload: CacheEnvelope[_T] = {
             "fetched_at": datetime.now(UTC).isoformat(),
             "data": data,
         }
-        self.path.write_text(json.dumps(payload), encoding="utf-8")
+        _ = self.path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 class GitHubMetadata:
     def __init__(self, cache_dir: Path, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
-        self.cache_dir = cache_dir
+        self.cache_dir: Path = cache_dir
         token = os.getenv("GITHUB_TOKEN")
-        self.client = Github(login_or_token=token) if token else Github()
+        self.client: Github = Github(login_or_token=token) if token else Github()
         self.releases_cache: MetadataCache[list[ReleaseMetadata]] = MetadataCache(
             cache_dir / "github_releases.json", ttl_seconds
         )

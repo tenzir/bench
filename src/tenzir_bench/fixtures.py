@@ -16,7 +16,7 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, cast, overload
+from typing import Protocol, cast, overload, override
 
 _LOG = logging.getLogger(__name__)
 
@@ -25,16 +25,22 @@ FixtureOptions = dict[str, object]
 HookCallback = Callable[..., object]
 
 
+def _empty_fixture_options() -> dict[str, object]:
+    return {}
+
+
 @dataclass(frozen=True, slots=True)
 class FixtureSpec:
     """Pair a fixture name with optional structured options."""
 
     name: str
-    options: FixtureOptions = field(default_factory=dict)
+    options: FixtureOptions = field(default_factory=_empty_fixture_options)
 
+    @override
     def __hash__(self) -> int:
         return hash((self.name, json.dumps(self.options, sort_keys=True)))
 
+    @override
     def __str__(self) -> str:
         if not self.options:
             return self.name
@@ -57,7 +63,7 @@ class FixtureContext:
     dataset_path: Path
     output_root: Path
     env: Mapping[str, str]
-    fixture_options: Mapping[str, object] = field(default_factory=dict)
+    fixture_options: Mapping[str, object] = field(default_factory=_empty_fixture_options)
 
 
 @dataclass(slots=True)
@@ -115,7 +121,7 @@ _ACTIVE_CONTROLLERS: ContextVar[dict[str, "FixtureController"]] = ContextVar(
     "tenzir_bench_active_fixture_controllers",
     default={},
 )
-_OPTIONS_CLASSES: dict[str, type] = {}
+_OPTIONS_CLASSES: dict[str, type[object]] = {}
 
 
 def current_context() -> FixtureContext | None:
@@ -155,16 +161,27 @@ def require(*names: str) -> None:
 
 
 def _unwrap_optional(tp: object) -> object:
-    origin = typing.get_origin(tp)
-    if origin is not types.UnionType and origin is not typing.Union:
+    args = cast(tuple[object, ...], typing.get_args(tp))
+    if not args or type(None) not in args:
         return tp
-    non_none_args = [arg for arg in typing.get_args(tp) if arg is not type(None)]
+    non_none_args = [arg for arg in args if arg is not type(None)]
     return non_none_args[0] if len(non_none_args) == 1 else tp
+
+
+def _string_object_mapping(value: object) -> Mapping[str, object] | None:
+    if not isinstance(value, Mapping):
+        return None
+    result: dict[str, object] = {}
+    for key, entry in cast(Mapping[object, object], value).items():
+        if not isinstance(key, str):
+            return None
+        result[key] = entry
+    return result
 
 
 def _instantiate_options(cls: type[object], data: Mapping[str, object]) -> object:
     try:
-        hints = typing.get_type_hints(cls)
+        hints = cast(dict[str, object], typing.get_type_hints(cls))
     except NameError:
         hints = {}
     processed: dict[str, object] = {}
@@ -175,15 +192,15 @@ def _instantiate_options(cls: type[object], data: Mapping[str, object]) -> objec
             field_type is not None
             and isinstance(field_type, type)
             and dataclasses.is_dataclass(field_type)
-            and isinstance(value, Mapping)
+            and (nested_value := _string_object_mapping(value)) is not None
         ):
-            processed[key] = _instantiate_options(field_type, value)
+            processed[key] = _instantiate_options(field_type, nested_value)
         else:
             processed[key] = value
     return cls(**processed)
 
 
-def get_options_class(name: str) -> type | None:
+def get_options_class(name: str) -> type[object] | None:
     """Return the registered options class for the named fixture, if any."""
 
     return _OPTIONS_CLASSES.get(name)
@@ -264,17 +281,11 @@ def _normalize_factory(factory: _FactoryCallable) -> FixtureFactory:
                 yield {}
 
             return _attach_hooks(_ctx_none())
-        if isinstance(result, dict):
+        @contextmanager
+        def _ctx_dict() -> Iterator[dict[str, str] | None]:
+            yield result
 
-            @contextmanager
-            def _ctx_dict() -> Iterator[dict[str, str] | None]:
-                yield result
-
-            return _attach_hooks(_ctx_dict())
-        raise TypeError(
-            "fixture factory must return a context manager, FixtureHandle, dict, "
-            "tuple[env, teardown], or None",
-        )
+        return _attach_hooks(_ctx_dict())
 
     return _as_context_manager
 
@@ -284,16 +295,15 @@ def register(
     factory: _FactoryCallable,
     *,
     replace: bool = False,
-    options: type | None = None,
+    options: type[object] | None = None,
 ) -> None:
     resolved_name = _infer_name(factory, name)
     if resolved_name in _FACTORIES and not replace:
         raise ValueError(f"fixture '{resolved_name}' already registered")
     if options is not None:
-        if not isinstance(options, type) or not dataclasses.is_dataclass(options):
+        if not dataclasses.is_dataclass(options):
             raise TypeError(
-                f"'options' for fixture '{resolved_name}' must be a dataclass type, "
-                f"got {type(options).__name__}",
+                f"'options' for fixture '{resolved_name}' must be a dataclass type, got {options.__name__}",
             )
         _OPTIONS_CLASSES[resolved_name] = options
     _FACTORIES[resolved_name] = _normalize_factory(factory)
@@ -305,7 +315,7 @@ def fixture(
     *,
     name: str | None = None,
     replace: bool = False,
-    options: type | None = None,
+    options: type[object] | None = None,
 ) -> _FactoryCallable: ...
 
 
@@ -315,7 +325,7 @@ def fixture(
     *,
     name: str | None = None,
     replace: bool = False,
-    options: type | None = None,
+    options: type[object] | None = None,
 ) -> Callable[[_FactoryCallable], _FactoryCallable]: ...
 
 
@@ -324,7 +334,7 @@ def fixture(
     *,
     name: str | None = None,
     replace: bool = False,
-    options: type | None = None,
+    options: type[object] | None = None,
 ) -> Callable[[_FactoryCallable], _FactoryCallable] | _FactoryCallable:
     """Decorator that registers a benchmark fixture factory."""
 
@@ -348,7 +358,7 @@ def _infer_name(func: Callable[..., object], explicit: str | None) -> str:
     if explicit:
         return explicit
     code_obj = getattr(func, "__code__", None)
-    if code_obj is not None and hasattr(code_obj, "co_filename"):
+    if isinstance(code_obj, types.CodeType):
         return Path(code_obj.co_filename).stem
     name_attr = getattr(func, "__name__", None)
     if isinstance(name_attr, str):
@@ -372,7 +382,7 @@ class FixtureController:
             raise RuntimeError(f"fixture '{self.name}' is already running")
         context = self._factory()
         env = context.__enter__() or {}
-        hooks = getattr(context, "__tenzir_bench_fixture_hooks__", {}) or {}
+        hooks = _extract_fixture_hooks(context)
         self._hooks = {
             hook_name: self._wrap_hook(hook_name, hook)
             for hook_name, hook in hooks.items()
@@ -387,7 +397,7 @@ class FixtureController:
         context, _env = self._state
         self._state = None
         try:
-            context.__exit__(None, None, None)
+            _ = context.__exit__(None, None, None)
         finally:
             self._hooks.clear()
 
@@ -401,6 +411,28 @@ class FixtureController:
 
         return _inner
 
+    def invoke_hook(self, hook_name: str, **kwargs: object) -> object | None:
+        hook = self._hooks.get(hook_name)
+        if hook is None:
+            return None
+        return hook(**kwargs)
+
+
+def _extract_fixture_hooks(
+    context: AbstractContextManager[dict[str, str] | None],
+) -> dict[str, HookCallback]:
+    raw_hooks = getattr(context, "__tenzir_bench_fixture_hooks__", None)
+    if not isinstance(raw_hooks, Mapping):
+        return {}
+    hooks: dict[str, HookCallback] = {}
+    for hook_name, hook in cast(Mapping[object, object], raw_hooks).items():
+        if not isinstance(hook_name, str):
+            continue
+        if not callable(hook):
+            continue
+        hooks[hook_name] = hook
+    return hooks
+
 
 def invoke_active_hook(
     hook_name: str,
@@ -410,10 +442,7 @@ def invoke_active_hook(
 
     controllers = _ACTIVE_CONTROLLERS.get()
     for fixture_name, controller in controllers.items():
-        hook = controller._hooks.get(hook_name)
-        if hook is None:
-            continue
-        hook(fixture=fixture_name, **kwargs)
+        _ = controller.invoke_hook(hook_name, fixture=fixture_name, **kwargs)
 
 
 def _build_fixture_options(specs: tuple[FixtureSpec, ...]) -> dict[str, object]:
@@ -453,7 +482,7 @@ def activate(names: Iterable[FixtureSpec | str]) -> Iterator[dict[str, str]]:
             controller = FixtureController(spec.name, factory)
             controllers[spec.name] = controller
             env = controller.start()
-            stack.callback(controller.stop)
+            _ = stack.callback(controller.stop)
             if env:
                 combined.update(env)
         yield combined

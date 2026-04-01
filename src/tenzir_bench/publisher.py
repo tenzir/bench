@@ -8,6 +8,7 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
+from mypy_boto3_s3.client import S3Client
 
 from .references import (
     ReportIdentity,
@@ -24,8 +25,8 @@ _LOG = logging.getLogger(__name__)
 
 class Publisher:
     def __init__(self, bucket: str = DEFAULT_BUCKET) -> None:
-        self.bucket = bucket
-        self.s3 = boto3.client("s3")
+        self.bucket: str = bucket
+        self.s3: S3Client = boto3.client("s3")
 
     def publish(self, directory: Path, destination: str, force: bool = False) -> None:
         reports = select_fastest(load_reports(directory))
@@ -49,7 +50,7 @@ class Publisher:
 
     def _exists(self, bucket: str, key: str) -> bool:
         try:
-            self.s3.head_object(Bucket=bucket, Key=key)
+            _ = self.s3.head_object(Bucket=bucket, Key=key)
             return True
         except ClientError as exc:  # type: ignore[assignment]
             error = exc.response.get("Error")
@@ -57,8 +58,3 @@ class Publisher:
             if code == "404":
                 return False
             raise
-
-
-def _parse_destination(destination: str, default_bucket: str) -> tuple[str, Path]:
-    resolved = parse_destination(destination, default_bucket=default_bucket)
-    return resolved.bucket, Path(resolved.prefix)
