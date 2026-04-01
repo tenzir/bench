@@ -12,6 +12,7 @@ from tenzir_bench.cli import (
     _render_run_summary,
     main,
 )
+from tenzir_bench.compare import CompareBuild
 from tenzir_bench.reports import Report
 
 
@@ -51,7 +52,7 @@ class CliTest(unittest.TestCase):
                 "--candidate",
                 "/tmp/candidate-b",
                 "--neo",
-                "benchmarks/operators/suricata-map-ocsf.tql",
+                "benchmarks/operators/suricata-parse-json.tql",
             ],
         )
 
@@ -63,7 +64,7 @@ class CliTest(unittest.TestCase):
                 ("/tmp/candidate-b", False, ("--neo",)),
             ],
         )
-        self.assertEqual(benchmarks, [Path("benchmarks/operators/suricata-map-ocsf.tql")])
+        self.assertEqual(benchmarks, [Path("benchmarks/operators/suricata-parse-json.tql")])
 
     def test_run_forwards_extra_tenzir_args(self) -> None:
         cli_runner = CliRunner()
@@ -78,7 +79,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "benchmarks/operators/suricata-map-ocsf.tql",
+                    "benchmarks/operators/suricata-parse-json.tql",
                     "--validate",
                     "--verbose",
                     "--neo",
@@ -92,7 +93,7 @@ class CliTest(unittest.TestCase):
         self.assertFalse(executor_cls.call_args.kwargs["dry_run"])
         self.assertTrue(executor_cls.call_args.kwargs["verbose"])
         self.assertEqual(
-            load_contexts.call_args.kwargs["pattern"], "benchmarks/operators/suricata-map-ocsf.tql"
+            load_contexts.call_args.kwargs["pattern"], "benchmarks/operators/suricata-parse-json.tql"
         )
 
     def test_run_forwards_dry_run(self) -> None:
@@ -108,7 +109,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "benchmarks/operators/suricata-map-ocsf.tql",
+                    "benchmarks/operators/suricata-parse-json.tql",
                     "--dry-run",
                     "--verbose",
                 ],
@@ -151,7 +152,10 @@ class CliTest(unittest.TestCase):
     def test_compare_forwards_dry_run(self) -> None:
         cli_runner = CliRunner()
         with (
-            patch("tenzir_bench.cli.resolve_binaries", return_value=[(Path("/tmp/a"), False, ())]),
+            patch(
+                "tenzir_bench.cli.resolve_binaries",
+                return_value=[CompareBuild(label="build-a", binary=Path("/tmp/a"))],
+            ),
             patch("tenzir_bench.cli.run_compare") as run_compare,
         ):
             result = cli_runner.invoke(
@@ -163,7 +167,7 @@ class CliTest(unittest.TestCase):
                     "/tmp/base",
                     "--candidate",
                     "/tmp/candidate",
-                    "benchmarks/operators/suricata-map-ocsf.tql",
+                    "benchmarks/operators/suricata-parse-json.tql",
                 ],
             )
 
