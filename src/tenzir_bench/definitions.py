@@ -173,7 +173,7 @@ def _split_frontmatter(text: str, path: pathlib.Path) -> tuple[str, str]:
     raise BenchmarkError(f"{path}: unable to find closing '---' for frontmatter")
 
 
-def _require_str(mapping: dict, key: str, path: pathlib.Path) -> str:
+def _require_str(mapping: dict[str, object], key: str, path: pathlib.Path) -> str:
     value = mapping.get(key)
     if value is None:
         raise BenchmarkError(f"{path}: missing required key benchmark.{key}")
@@ -183,7 +183,7 @@ def _require_str(mapping: dict, key: str, path: pathlib.Path) -> str:
 
 
 def _parse_fixture_specs(
-    benchmark: dict,
+    benchmark: dict[str, object],
     path: pathlib.Path,
 ) -> tuple[FixtureSpec, ...]:
     if "fixture" in benchmark and "fixtures" in benchmark:

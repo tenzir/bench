@@ -16,10 +16,7 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
-
-if TYPE_CHECKING:
-    from .definitions import BenchmarkDefinition
+from typing import Any, Protocol, cast, overload
 
 _LOG = logging.getLogger(__name__)
 
@@ -41,11 +38,18 @@ class FixtureSpec:
         return f"{self.name}({items})"
 
 
+class BenchmarkFixtureDefinition(Protocol):
+    """Structural subset of benchmark definitions exposed to fixtures."""
+
+    @property
+    def path(self) -> Path: ...
+
+
 @dataclass(frozen=True)
 class FixtureContext:
     """Describe the benchmark context available to fixture factories."""
 
-    definition: BenchmarkDefinition
+    definition: BenchmarkFixtureDefinition
     dataset_path: Path
     output_root: Path
     env: Mapping[str, str]
@@ -291,6 +295,26 @@ def register(
     _FACTORIES[resolved_name] = _normalize_factory(factory)
 
 
+@overload
+def fixture(
+    func: _FactoryCallable,
+    *,
+    name: str | None = None,
+    replace: bool = False,
+    options: type | None = None,
+) -> _FactoryCallable: ...
+
+
+@overload
+def fixture(
+    func: None = None,
+    *,
+    name: str | None = None,
+    replace: bool = False,
+    options: type | None = None,
+) -> Callable[[_FactoryCallable], _FactoryCallable]: ...
+
+
 def fixture(
     func: _FactoryCallable | None = None,
     *,
@@ -301,13 +325,15 @@ def fixture(
     """Decorator that registers a benchmark fixture factory."""
 
     def _decorator(inner: _FactoryCallable) -> _FactoryCallable:
-        candidate: _FactoryCallable
         if inspect.isgeneratorfunction(inner):
-            candidate = contextmanager(inner)
+            candidate = cast(
+                _FactoryCallable,
+                contextmanager(cast(Callable[[], Iterator[object]], inner)),
+            )
         else:
             candidate = inner
         register(name, candidate, replace=replace, options=options)
-        return inner
+        return cast(_FactoryCallable, inner)
 
     if func is not None:
         return _decorator(func)

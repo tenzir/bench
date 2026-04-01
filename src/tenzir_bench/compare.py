@@ -11,9 +11,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
+from typing import TypeAlias
 
-from .definitions import BenchmarkError
-from .executor import BenchmarkExecutor, BuildInfo, _infer_target, build_result_id
+from .definitions import BenchmarkDefinition, BenchmarkError
+from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo, _infer_target, build_result_id
 from .hardware import current_hardware_key
 from .paths import BenchPaths
 from .publisher import Publisher
@@ -28,6 +29,7 @@ from .runners import RunnerRegistry
 from .specs import load_definitions_from_paths
 
 _LOG = logging.getLogger(__name__)
+LoadedDefinition: TypeAlias = BenchmarkDefinition
 
 
 @dataclass(frozen=True)
@@ -224,6 +226,8 @@ def _prepare_reference_backed_reports(
     target = build.target or (build.binary and _infer_target(build.binary))
     if not target:
         raise RuntimeError(f"{build.label}: reference-backed build requires a target")
+    if build.reference_destination is None:
+        raise RuntimeError(f"{build.label}: reference-backed build requires a destination")
     remote_reports = download_reference_reports(
         build.reference_destination,
         hardware_key=current_hardware_key(),
@@ -337,14 +341,14 @@ def _reports_by_pipeline(reports: Iterable[Report]) -> dict[str, Report]:
     return {report.pipeline: report for report in reports}
 
 
-def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list:
+def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list[LoadedDefinition]:
     return load_definitions_from_paths(
         list(paths),
         version_supplier=lambda: version,
     )
 
 
-def _definition_identity(definition) -> ReportIdentity:
+def _definition_identity(definition: LoadedDefinition) -> ReportIdentity:
     benchmark_id = getattr(definition, "benchmark_id", None)
     implementation_id = getattr(definition, "implementation_id", None)
     path = getattr(definition, "path", None)
@@ -355,7 +359,9 @@ def _definition_identity(definition) -> ReportIdentity:
     return benchmark_id, implementation_id
 
 
-def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> Iterable:
+def _discover_from_dirs(
+    executor: BenchmarkExecutor, dirs: Sequence[Path]
+) -> Iterable[BenchmarkContext]:
     if not dirs:
         yield from executor.discover(pattern=None)
         return

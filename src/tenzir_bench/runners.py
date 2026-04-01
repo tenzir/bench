@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 _LOG = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ class RunnerMetrics:
 
 
 class Runner:
-    name: str
+    name: ClassVar[str]
 
     def run(
         self, command: Sequence[str], env: Mapping[str, str], timeout: int | None

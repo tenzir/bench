@@ -36,7 +36,9 @@ class ResultSyncer:
         for prefix in prefixes:
             for page in paginator.paginate(Bucket=self.bucket, Prefix=str(prefix)):
                 for obj in page.get("Contents", []):
-                    key = obj["Key"]
+                    key = obj.get("Key")
+                    if not isinstance(key, str):
+                        continue
                     if key.endswith("/"):
                         continue
                     local_path = self.paths.results_cache_dir / key

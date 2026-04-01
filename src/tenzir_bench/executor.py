@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -458,7 +458,7 @@ def _benchmark_repo_root(path: Path) -> Path:
 def _benchmark_runtime_env(
     context: BenchmarkContext,
     output_root: Path,
-) -> Iterable[dict[str, str]]:
+) -> Iterator[dict[str, str]]:
     fixture_api.load_fixture_modules(context.definition.path, root=context.root)
     env = _benchmark_env(context.definition, context.dataset_path, output_root)
     token = fixture_api.push_context(
@@ -531,6 +531,7 @@ def _run_once(
             output_path=output_file,
             success=metrics is not None,
         )
+    assert metrics is not None
     if not store_result:
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0

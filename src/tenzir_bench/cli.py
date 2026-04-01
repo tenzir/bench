@@ -6,6 +6,7 @@ import logging
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TypeAlias
 
 import click
 
@@ -13,7 +14,7 @@ from .compare import resolve_binaries, run_compare
 from .datasets import DatasetManager
 from .definitions import BenchmarkDefinition
 from .evaluation import evaluate as evaluate_results
-from .executor import BenchmarkExecutor
+from .executor import BenchmarkContext, BenchmarkExecutor
 from .paths import BenchPaths
 from .publisher import Publisher
 from .reports import Report, load_report, select_fastest
@@ -21,6 +22,7 @@ from .runners import RunnerRegistry
 from .specs import discover_definitions
 from .syncer import sync as sync_results
 
+BenchmarkContextList: TypeAlias = list[BenchmarkContext]
 _LOG_LEVELS = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -263,7 +265,7 @@ def _load_contexts(
     root: Path,
     pattern: str | None,
     benchmarks: Sequence[str],
-) -> list:
+) -> BenchmarkContextList:
     definitions: list[BenchmarkDefinition] = []
     if benchmarks:
         seen: set[tuple[Path, str]] = set()

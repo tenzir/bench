@@ -52,7 +52,9 @@ class Publisher:
             self.s3.head_object(Bucket=bucket, Key=key)
             return True
         except ClientError as exc:  # type: ignore[assignment]
-            if exc.response["Error"]["Code"] == "404":
+            error = exc.response.get("Error")
+            code = error.get("Code") if error is not None else None
+            if code == "404":
                 return False
             raise
 

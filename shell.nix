@@ -4,6 +4,11 @@
 
 let
   python = pkgs.python313.withPackages (ps : [
+    ps.boto3
+    ps.click
+    ps.platformdirs
+    ps.pygithub
+    ps.pyyaml
     ps.uv
     ps.uv-build
   ]);
