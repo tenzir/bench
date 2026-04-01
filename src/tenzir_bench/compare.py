@@ -603,6 +603,10 @@ def _docker_wrapper_script(image: str, paths: BenchPaths) -> str:
             exit 127
         fi
 
+        if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            docker pull "$IMAGE" >&2
+        fi
+
         ENTRYPOINT_JSON="$(docker image inspect --format '{{{{json .Config.Entrypoint}}}}' "$IMAGE")"
         CMD_JSON="$(docker image inspect --format '{{{{json .Config.Cmd}}}}' "$IMAGE")"
 

@@ -413,6 +413,8 @@ discard
             "docker image inspect --format '{{json .Config.Entrypoint}}' \"$IMAGE\"", script
         )
         self.assertIn("docker image inspect --format '{{json .Config.Cmd}}' \"$IMAGE\"", script)
+        self.assertIn('if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then', script)
+        self.assertIn('docker pull "$IMAGE" >&2', script)
         self.assertIn("--entrypoint python3", script)
         self.assertIn("tenzir-bench-maxrss=", script)
         self.assertIn("os.wait4(proc.pid, 0)", script)
