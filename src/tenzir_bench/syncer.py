@@ -7,12 +7,10 @@ from collections.abc import Iterable, Sequence
 from pathlib import PurePosixPath
 
 import boto3
-from mypy_boto3_s3.client import S3Client
-from mypy_boto3_s3.paginator import ListObjectsV2Paginator
-from mypy_boto3_s3.type_defs import ListObjectsV2OutputTypeDef, ObjectTypeDef
 
 from .metadata import GitHubMetadata, MainCommitMetadata, ReleaseMetadata
 from .paths import BenchPaths
+from .s3_types import ListObjectsV2OutputTypeDef, ListObjectsV2Paginator, ObjectTypeDef, S3Client
 
 _LOG = logging.getLogger(__name__)
 

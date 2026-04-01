@@ -8,7 +8,6 @@ from pathlib import Path
 
 import boto3
 from botocore.exceptions import ClientError
-from mypy_boto3_s3.client import S3Client
 
 from .references import (
     ReportIdentity,
@@ -17,6 +16,7 @@ from .references import (
     reference_report_key,
 )
 from .reports import Report, load_reports, select_fastest
+from .s3_types import S3Client
 
 DEFAULT_BUCKET = "tenzir-bench-reports-dev"
 
