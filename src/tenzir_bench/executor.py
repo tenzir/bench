@@ -16,13 +16,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import BinaryIO, cast
 
 from .definitions import BenchmarkDefinition, BenchmarkError
 from . import fixtures as fixture_api
 from .hashing import hash_benchmark, hash_file
 from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
-from .runners import RunnerRegistry
+from .runners import Runner, RunnerMetrics, RunnerRegistry
 from .specs import discover_definitions
 
 _LOG = logging.getLogger(__name__)
@@ -50,20 +51,20 @@ class BenchmarkExecutor:
         dry_run: bool = False,
         verbose: bool = False,
     ) -> None:
-        self.paths = paths
-        self.tenzir_bin = tenzir_bin
-        self.tenzir_args = tuple(tenzir_args)
-        self.target = target or _infer_target(tenzir_bin)
-        self.runners = runner_registry
-        self.validate_only = validate
-        self.dry_run = dry_run
-        self.verbose = verbose
+        self.paths: BenchPaths = paths
+        self.tenzir_bin: Path = tenzir_bin
+        self.tenzir_args: tuple[str, ...] = tuple(tenzir_args)
+        self.target: str = target or _infer_target(tenzir_bin)
+        self.runners: RunnerRegistry = runner_registry
+        self.validate_only: bool = validate
+        self.dry_run: bool = dry_run
+        self.verbose: bool = verbose
         self._build_info: BuildInfo | None = None
         self._progress_total: int = 0
         self._progress_current: int = 0
         self._progress_planned: bool = False
         self._printed_commands: set[tuple[str, tuple[str, ...]]] = set()
-        self._validated_invocation = False
+        self._validated_invocation: bool = False
 
     def discover(
         self, pattern: str | None, *, root: Path | None = None
@@ -110,7 +111,10 @@ class BenchmarkExecutor:
                 source_value,
                 headers={"User-Agent": "tenzir-bench/0.1"},
             )
-            with urllib.request.urlopen(request) as response, dataset.open("wb") as handle:
+            with (
+                cast(BinaryIO, urllib.request.urlopen(request)) as response,
+                dataset.open("wb") as handle,
+            ):
                 shutil.copyfileobj(response, handle)
             return dataset
         source = Path(source_value).expanduser()
@@ -120,7 +124,7 @@ class BenchmarkExecutor:
             source = source.resolve()
         if not source.exists():
             return dataset
-        shutil.copy2(source, dataset)
+        _ = shutil.copy2(source, dataset)
         return dataset
 
     def prepare_progress(self, contexts: Sequence[BenchmarkContext]) -> None:
@@ -196,7 +200,7 @@ class BenchmarkExecutor:
                     context.definition.runtime.warmup_runs,
                     context.definition.id,
                 )
-                _run_once(
+                _ = _run_once(
                     runner=runner,
                     definition=context.definition,
                     env=env,
@@ -286,7 +290,7 @@ class BenchmarkExecutor:
         if self._validated_invocation:
             return
         try:
-            subprocess.run(
+            _ = subprocess.run(
                 _tenzir_command(
                     self.tenzir_bin,
                     self.tenzir_args,
@@ -297,7 +301,9 @@ class BenchmarkExecutor:
                 text=True,
             )
         except subprocess.CalledProcessError as exc:
-            message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+            stderr = cast(str, exc.stderr) if isinstance(exc.stderr, str) else ""
+            stdout = cast(str, exc.stdout) if isinstance(exc.stdout, str) else ""
+            message = stderr.strip() or stdout.strip() or str(exc)
             raise RuntimeError(
                 f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}"
             ) from exc
@@ -359,7 +365,7 @@ class BenchmarkExecutor:
         for context, report in reports:
             target = _staged_report_path(self.paths, output_dir, context, build, report)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(report, target)
+            _ = shutil.copy2(report, target)
         return output_dir
 
     def _dry_run_result_dir(self, context: BenchmarkContext) -> Path:
@@ -424,10 +430,15 @@ def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
         _LOG.warning("Failed to detect build metadata: %s", exc)
         return BuildInfo(version=None, build_type=None, path=str(tenzir_bin))
     line = proc.stdout.strip().splitlines()[0] if proc.stdout else ""
-    data: dict[str, str] = json.loads(line)
+    payload = cast(object, json.loads(line))
+    data = cast(dict[str, object], payload) if isinstance(payload, dict) else {}
     version = data["version"] if "version" in data else None
     build_type = data["build_type"] if "build_type" in data else None
-    return BuildInfo(version=version, build_type=build_type, path=str(tenzir_bin.resolve()))
+    return BuildInfo(
+        version=version if isinstance(version, str) else None,
+        build_type=build_type if isinstance(build_type, str) else None,
+        path=str(tenzir_bin.resolve()),
+    )
 
 
 def _git_revision() -> str | None:
@@ -447,7 +458,7 @@ def _benchmark_repo_root(path: Path) -> Path:
         if not bench_dir.is_dir():
             continue
         try:
-            resolved.relative_to(bench_dir)
+            _ = resolved.relative_to(bench_dir)
         except ValueError:
             continue
         return ancestor
@@ -480,7 +491,7 @@ def _benchmark_runtime_env(
 
 
 def _run_once(
-    runner,
+    runner: Runner,
     definition: BenchmarkDefinition,
     env: dict[str, str],
     command: Sequence[str],
@@ -513,7 +524,7 @@ def _run_once(
         input_path=input_path,
         output_path=output_file,
     )
-    metrics = None
+    metrics: RunnerMetrics | None = None
     try:
         metrics = runner.run(command, env=run_env, timeout=timeout)
     except RuntimeError as exc:
@@ -536,17 +547,15 @@ def _run_once(
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
     input_bytes = input_path.stat().st_size if definition.input_measure else output_bytes
-    if input_bytes is None:
-        input_bytes = 0
     timestamp = datetime.now(UTC)
-    runtime = {
+    runtime: dict[str, float | int] = {
         "wall_clock": metrics.wall_clock,
         "cpu_user": metrics.cpu_user,
         "cpu_system": metrics.cpu_system,
         "max_resident_set_kb": metrics.max_resident_set_kb,
         "exit_code": 0,
     }
-    throughput = {
+    throughput: dict[str, float | int] = {
         "bytes_total_processed": input_bytes,
         "bytes_per_second": metrics.bytes_per_second(input_bytes),
     }
@@ -554,7 +563,7 @@ def _run_once(
         throughput["records_total_processed"] = definition.input_events
         throughput["records_per_second"] = definition.input_events / metrics.wall_clock
     snapshot = environment_snapshot()
-    report = {
+    report: dict[str, object] = {
         "pipeline": definition.id,
         "benchmark_id": definition.benchmark_id or definition.id,
         "implementation_id": definition.implementation_id,

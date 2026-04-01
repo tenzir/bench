@@ -14,7 +14,7 @@ from textwrap import dedent
 from typing import TypeAlias
 
 from .definitions import BenchmarkDefinition, BenchmarkError
-from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo, _infer_target, build_result_id
+from .executor import BenchmarkContext, BenchmarkExecutor, BuildInfo, build_result_id
 from .hardware import current_hardware_key
 from .paths import BenchPaths
 from .publisher import Publisher
@@ -30,6 +30,7 @@ from .specs import load_definitions_from_paths
 
 _LOG = logging.getLogger(__name__)
 LoadedDefinition: TypeAlias = BenchmarkDefinition
+PipelineReports: TypeAlias = dict[str, Report]
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,7 @@ def prepare_compare_build_reports(
     validate: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
-) -> list[tuple[str, dict[str, Report]]]:
+) -> list[tuple[str, PipelineReports]]:
     if not builds:
         return []
     compare_root = paths.results_state_dir / "compare"
@@ -123,7 +124,7 @@ def prepare_compare_build_reports(
         shutil.rmtree(compare_root, ignore_errors=True)
     compare_root.mkdir(parents=True, exist_ok=True)
     registry = RunnerRegistry()
-    prepared: list[tuple[str, dict[str, Report]]] = []
+    prepared: list[tuple[str, PipelineReports]] = []
     for build in builds:
         reports = prepare_compare_reports_for_build(
             paths,
@@ -223,7 +224,7 @@ def _prepare_reference_backed_reports(
     dry_run: bool,
     verbose: bool,
 ) -> dict[str, Report]:
-    target = build.target or (build.binary and _infer_target(build.binary))
+    target = build.target or (build.binary and _compare_target(build.binary))
     if not target:
         raise RuntimeError(f"{build.label}: reference-backed build requires a target")
     if build.reference_destination is None:
@@ -299,7 +300,7 @@ def _prepare_local_reports(
         for context in contexts:
             executor.validate(context)
         return {}
-    executor.ensure_reports(contexts, compare_dir, force=build.force)
+    _ = executor.ensure_reports(contexts, compare_dir, force=build.force)
     return select_fastest(load_reports(compare_dir))
 
 
@@ -339,6 +340,12 @@ def _compare_dir(
 
 def _reports_by_pipeline(reports: Iterable[Report]) -> dict[str, Report]:
     return {report.pipeline: report for report in reports}
+
+
+def _compare_target(binary: Path) -> str:
+    if binary.suffix == ".sh" and binary.parent.name == "docker":
+        return "docker"
+    return "static"
 
 
 def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list[LoadedDefinition]:
@@ -388,9 +395,10 @@ def _render_compact_table(
     label_width = max([len("build"), len(baseline_label), *candidate_label_lengths])
     header = f"{'build':<{label_width}} {'seconds':>10} {'Δseconds':>12} {'rss':>10} {'Δrss':>12}"
     separator = "-" * len(header)
-    pipelines = sorted(
-        set(baseline_reports) | set().union(*(reports.keys() for _, reports in candidate_reports)),
-    )
+    pipeline_set: set[str] = set(baseline_reports)
+    for _, reports in candidate_reports:
+        pipeline_set.update(reports.keys())
+    pipelines = sorted(pipeline_set)
     for pipeline in pipelines:
         print(pipeline)
         print(separator)
@@ -408,9 +416,10 @@ def _render_detailed(
     baseline_reports: dict[str, Report],
     candidate_reports: Sequence[tuple[str, dict[str, Report]]],
 ) -> None:
-    pipelines = sorted(
-        set(baseline_reports) | set().union(*(reports.keys() for _, reports in candidate_reports)),
-    )
+    pipeline_set: set[str] = set(baseline_reports)
+    for _, reports in candidate_reports:
+        pipeline_set.update(reports.keys())
+    pipelines = sorted(pipeline_set)
     for pipeline in pipelines:
         print(f"Pipeline: {pipeline}")
         base = baseline_reports.get(pipeline)
@@ -451,7 +460,7 @@ def _fmt_seconds(report: Report | None) -> str:
 
 
 def _fmt_rss(report: Report | None) -> str:
-    if not report or report.rss_kb is None:
+    if not report:
         return "-"
     return f"{report.rss_kb / 1024:.0f} MB"
 
@@ -537,7 +546,7 @@ def _ensure_docker_wrapper(paths: BenchPaths, image: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", image)
     wrapper_path = wrapper_dir / f"{safe}-{digest}.sh"
     script = _docker_wrapper_script(image, paths)
-    wrapper_path.write_text(script, encoding="utf-8")
+    _ = wrapper_path.write_text(script, encoding="utf-8")
     wrapper_path.chmod(0o755)
     return wrapper_path
 

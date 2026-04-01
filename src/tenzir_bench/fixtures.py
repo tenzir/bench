@@ -16,9 +16,13 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol, cast, overload
+from typing import Protocol, cast, overload
 
 _LOG = logging.getLogger(__name__)
+
+
+FixtureOptions = dict[str, object]
+HookCallback = Callable[..., object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +30,7 @@ class FixtureSpec:
     """Pair a fixture name with optional structured options."""
 
     name: str
-    options: dict[str, Any] = field(default_factory=dict)
+    options: FixtureOptions = field(default_factory=dict)
 
     def __hash__(self) -> int:
         return hash((self.name, json.dumps(self.options, sort_keys=True)))
@@ -53,7 +57,7 @@ class FixtureContext:
     dataset_path: Path
     output_root: Path
     env: Mapping[str, str]
-    fixture_options: Mapping[str, Any] = field(default_factory=dict)
+    fixture_options: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -62,7 +66,7 @@ class FixtureHandle:
 
     env: dict[str, str] | None = None
     teardown: Callable[[], None] | None = None
-    hooks: Mapping[str, Callable[..., Any]] | None = None
+    hooks: Mapping[str, HookCallback] | None = None
 
 
 class FixtureUnavailable(Exception):
@@ -150,20 +154,20 @@ def require(*names: str) -> None:
     fixtures().require(*names)
 
 
-def _unwrap_optional(tp: Any) -> Any:
+def _unwrap_optional(tp: object) -> object:
     origin = typing.get_origin(tp)
-    if origin not in (typing.Union, types.UnionType):
+    if origin is not types.UnionType and origin is not typing.Union:
         return tp
     non_none_args = [arg for arg in typing.get_args(tp) if arg is not type(None)]
     return non_none_args[0] if len(non_none_args) == 1 else tp
 
 
-def _instantiate_options(cls: type, data: Mapping[str, Any]) -> Any:
+def _instantiate_options(cls: type[object], data: Mapping[str, object]) -> object:
     try:
         hints = typing.get_type_hints(cls)
     except NameError:
         hints = {}
-    processed: dict[str, Any] = {}
+    processed: dict[str, object] = {}
     for key, value in data.items():
         raw_type = hints.get(key)
         field_type = _unwrap_optional(raw_type) if raw_type is not None else None
@@ -185,7 +189,7 @@ def get_options_class(name: str) -> type | None:
     return _OPTIONS_CLASSES.get(name)
 
 
-def current_options(name: str) -> Any:
+def current_options(name: str) -> object:
     """Return typed or raw options for the named fixture from the active context."""
 
     ctx = _CONTEXT.get()
@@ -217,7 +221,7 @@ _FACTORIES: dict[str, FixtureFactory] = {}
 
 def _attach_hooks(
     manager: AbstractContextManager[dict[str, str] | None],
-    hooks: Mapping[str, Callable[..., Any]] | None = None,
+    hooks: Mapping[str, HookCallback] | None = None,
 ) -> AbstractContextManager[dict[str, str] | None]:
     setattr(manager, "__tenzir_bench_fixture_hooks__", dict(hooks or {}))
     return manager
@@ -356,12 +360,12 @@ class FixtureController:
     """Imperative controller for an active fixture."""
 
     def __init__(self, name: str, factory: FixtureFactory) -> None:
-        self.name = name
-        self._factory = factory
+        self.name: str = name
+        self._factory: FixtureFactory = factory
         self._state: tuple[AbstractContextManager[dict[str, str] | None], dict[str, str]] | None = (
             None
         )
-        self._hooks: dict[str, Callable[..., Any]] = {}
+        self._hooks: dict[str, HookCallback] = {}
 
     def start(self) -> dict[str, str]:
         if self._state is not None:
@@ -387,8 +391,8 @@ class FixtureController:
         finally:
             self._hooks.clear()
 
-    def _wrap_hook(self, hook_name: str, hook: Callable[..., Any]) -> Callable[..., Any]:
-        def _inner(*args: Any, **kwargs: Any) -> Any:
+    def _wrap_hook(self, hook_name: str, hook: HookCallback) -> HookCallback:
+        def _inner(*args: object, **kwargs: object) -> object:
             if self._state is None:
                 raise RuntimeError(
                     f"cannot call '{hook_name}' on fixture '{self.name}' because it is not running",
@@ -400,7 +404,7 @@ class FixtureController:
 
 def invoke_active_hook(
     hook_name: str,
-    **kwargs: Any,
+    **kwargs: object,
 ) -> None:
     """Invoke a named hook on every currently active fixture that exposes it."""
 
@@ -412,8 +416,8 @@ def invoke_active_hook(
         hook(fixture=fixture_name, **kwargs)
 
 
-def _build_fixture_options(specs: tuple[FixtureSpec, ...]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
+def _build_fixture_options(specs: tuple[FixtureSpec, ...]) -> dict[str, object]:
+    result: dict[str, object] = {}
     for spec in specs:
         options_cls = _OPTIONS_CLASSES.get(spec.name)
         if options_cls is not None:
