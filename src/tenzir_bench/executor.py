@@ -65,7 +65,9 @@ class BenchmarkExecutor:
         self._printed_commands: set[tuple[str, tuple[str, ...]]] = set()
         self._validated_invocation = False
 
-    def discover(self, pattern: str | None, *, root: Path | None = None) -> Iterable[BenchmarkContext]:
+    def discover(
+        self, pattern: str | None, *, root: Path | None = None
+    ) -> Iterable[BenchmarkContext]:
         try:
             definitions = discover_definitions(
                 pattern,
@@ -123,8 +125,7 @@ class BenchmarkExecutor:
 
     def prepare_progress(self, contexts: Sequence[BenchmarkContext]) -> None:
         total = sum(
-            context.definition.runtime.warmup_runs
-            + context.definition.runtime.measurement_runs
+            context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
             for context in contexts
         )
         self._progress_total = total
@@ -178,7 +179,9 @@ class BenchmarkExecutor:
                 _LOG.info("Validate: validated benchmark %s", context.definition.id)
                 return []
             results: list[Path] = []
-            total_runs = context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
+            total_runs = (
+                context.definition.runtime.warmup_runs + context.definition.runtime.measurement_runs
+            )
             dynamic_progress = False
             if not self._progress_planned:
                 self._progress_total = total_runs
@@ -295,7 +298,9 @@ class BenchmarkExecutor:
             )
         except subprocess.CalledProcessError as exc:
             message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-            raise RuntimeError(f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}") from exc
+            raise RuntimeError(
+                f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}"
+            ) from exc
         self._validated_invocation = True
 
     def _print_dry_run_invocation(self, context: BenchmarkContext) -> None:
@@ -375,6 +380,7 @@ class BenchmarkExecutor:
 # ---------------------------------------------------------------------------
 # Helpers
 
+
 @dataclass
 class BuildInfo:
     version: str | None
@@ -408,7 +414,7 @@ def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
             _tenzir_command(
                 tenzir_bin,
                 tenzir_args,
-                pipeline='version | select version, build_type=build.type | write_ndjson',
+                pipeline="version | select version, build_type=build.type | write_ndjson",
             ),
             check=True,
             capture_output=True,
@@ -426,7 +432,9 @@ def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
 
 def _git_revision() -> str | None:
     try:
-        proc = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True)
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        )
         return proc.stdout.strip() or None
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -570,8 +578,7 @@ def _run_once(
         "command": command,
         "tags": definition.tags,
         "fixtures": [
-            {"name": fixture.name, "options": fixture.options}
-            for fixture in definition.fixtures
+            {"name": fixture.name, "options": fixture.options} for fixture in definition.fixtures
         ],
         "input": {
             "path": str(input_path),

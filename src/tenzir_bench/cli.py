@@ -21,8 +21,13 @@ from .runners import RunnerRegistry
 from .specs import discover_definitions
 from .syncer import sync as sync_results
 
-_LOG_LEVELS = {"debug": logging.DEBUG, "info": logging.INFO, "warning": logging.WARNING,
-               "error": logging.ERROR, "critical": logging.CRITICAL}
+_LOG_LEVELS = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
+}
 
 
 def _configure_logging(level: str) -> None:
@@ -33,8 +38,13 @@ def _configure_logging(level: str) -> None:
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--log-level", default="info", show_default=True,
-              type=click.Choice(sorted(_LOG_LEVELS)), help="Set log verbosity.")
+@click.option(
+    "--log-level",
+    default="info",
+    show_default=True,
+    type=click.Choice(sorted(_LOG_LEVELS)),
+    help="Set log verbosity.",
+)
 @click.pass_context
 def main(ctx: click.Context, log_level: str) -> None:
     """Tenzir benchmark harness."""
@@ -60,13 +70,17 @@ def prepare(paths: BenchPaths, force: bool) -> None:
     help="Benchmark id, glob, file, or directory to run. Repeat to select multiple.",
 )
 @click.option("--tenzir-bin", type=click.Path(path_type=Path), help="Path to the Tenzir binary.")
-@click.option("--validate", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option(
+    "--validate", is_flag=True, help="Validate benchmark commands without executing them."
+)
 @click.option(
     "--dry-run",
     is_flag=True,
     help="Print resolved benchmark invocations without validating them.",
 )
-@click.option("--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form.")
+@click.option(
+    "--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form."
+)
 @click.argument("tenzir_args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_obj
 def run(
@@ -130,8 +144,9 @@ def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:
 
 
 @main.command()
-@click.option("--runs", type=click.Path(path_type=Path),
-              help="Directory containing benchmark run reports.")
+@click.option(
+    "--runs", type=click.Path(path_type=Path), help="Directory containing benchmark run reports."
+)
 @click.option("--base", type=click.Path(path_type=Path), help="Baseline directory for evaluation.")
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
 @click.pass_obj
@@ -142,8 +157,9 @@ def eval(paths: BenchPaths, runs: Path | None, base: Path | None, compact: bool)
 
 
 @main.command()
-@click.option("--runs", type=click.Path(path_type=Path),
-              help="Directory with run reports to publish.")
+@click.option(
+    "--runs", type=click.Path(path_type=Path), help="Directory with run reports to publish."
+)
 @click.option("--destination", required=True, help="Remote bucket/prefix to publish to.")
 @click.option("--force", is_flag=True, help="Re-upload artifacts even if they exist remotely.")
 @click.pass_obj
@@ -156,13 +172,17 @@ def publish(paths: BenchPaths, runs: Path | None, destination: str, force: bool)
 
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
-@click.option("--validate", is_flag=True, help="Validate benchmark commands without executing them.")
+@click.option(
+    "--validate", is_flag=True, help="Validate benchmark commands without executing them."
+)
 @click.option(
     "--dry-run",
     is_flag=True,
     help="Print resolved benchmark invocations without validating them.",
 )
-@click.option("--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form.")
+@click.option(
+    "--verbose", is_flag=True, help="Print each benchmark invocation once in copyable form."
+)
 @click.argument("arguments", nargs=-1, metavar="PATH")
 @click.pass_obj
 def compare(
@@ -248,7 +268,9 @@ def _load_contexts(
     if benchmarks:
         seen: set[tuple[Path, str]] = set()
         for selector in benchmarks:
-            for definition in _discover_selected_definitions(executor, root=root, selector=selector):
+            for definition in _discover_selected_definitions(
+                executor, root=root, selector=selector
+            ):
                 key = (definition.path, definition.id)
                 if key in seen:
                     continue
@@ -262,7 +284,11 @@ def _load_contexts(
                 root=root,
             ),
         )
-    return [context for definition in definitions if (context := executor.create_context(definition)) is not None]
+    return [
+        context
+        for definition in definitions
+        if (context := executor.create_context(definition)) is not None
+    ]
 
 
 def _discover_selected_definitions(

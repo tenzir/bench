@@ -68,7 +68,9 @@ class GitHubMetadata:
             releases.append(
                 {
                     "tag": release.tag_name,
-                    "published_at": release.published_at.isoformat() if release.published_at else None,
+                    "published_at": release.published_at.isoformat()
+                    if release.published_at
+                    else None,
                     "target": release.target_commitish,
                 },
             )
@@ -88,7 +90,9 @@ class GitHubMetadata:
             commits.append(
                 {
                     "sha": commit.sha,
-                    "date": commit.commit.author.date.isoformat() if commit.commit.author and commit.commit.author.date else None,
+                    "date": commit.commit.author.date.isoformat()
+                    if commit.commit.author and commit.commit.author.date
+                    else None,
                 },
             )
         self.main_cache.save(commits)

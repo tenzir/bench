@@ -91,7 +91,9 @@ class CliTest(unittest.TestCase):
         self.assertTrue(executor_cls.call_args.kwargs["validate"])
         self.assertFalse(executor_cls.call_args.kwargs["dry_run"])
         self.assertTrue(executor_cls.call_args.kwargs["verbose"])
-        self.assertEqual(load_contexts.call_args.kwargs["pattern"], "benchmarks/operators/suricata-map-ocsf.tql")
+        self.assertEqual(
+            load_contexts.call_args.kwargs["pattern"], "benchmarks/operators/suricata-map-ocsf.tql"
+        )
 
     def test_run_forwards_dry_run(self) -> None:
         cli_runner = CliRunner()

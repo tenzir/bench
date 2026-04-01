@@ -11,11 +11,7 @@ def render_grouped_markdown(builds: Sequence[tuple[str, Mapping[str, Report]]]) 
     if not builds:
         return ""
     benchmark_ids = sorted(
-        {
-            report.benchmark_id
-            for _label, reports in builds
-            for report in reports.values()
-        },
+        {report.benchmark_id for _label, reports in builds for report in reports.values()},
     )
     sections: list[str] = []
     for benchmark_id in benchmark_ids:

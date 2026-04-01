@@ -93,6 +93,7 @@ class DatasetManager:
 # ---------------------------------------------------------------------------
 # Post-processing helpers
 
+
 def _suricata_post(download: Path, final: Path, paths: BenchPaths, force: bool) -> None:
     extracted = _decompress_zst(download, final, force=force)
     kv_log = extracted.parent / "eve.kv.log"
@@ -100,7 +101,10 @@ def _suricata_post(download: Path, final: Path, paths: BenchPaths, force: bool) 
         return
     _LOG.info("Generating %s", kv_log)
     keys = ["timestamp", "event_type", "src_ip", "src_port", "dest_ip", "dest_port", "proto"]
-    with extracted.open("r", encoding="utf-8") as source, kv_log.open("w", encoding="utf-8") as sink:
+    with (
+        extracted.open("r", encoding="utf-8") as source,
+        kv_log.open("w", encoding="utf-8") as sink,
+    ):
         for line in source:
             line = line.strip()
             if not line:
@@ -142,9 +146,13 @@ def _extract_conn_log(source: Path, destination: Path) -> None:
     _ensure_parent(destination)
     meta_lines = []
     writing = False
-    with source.open("r", encoding="utf-8", errors="ignore") as handle, destination.open(
-        "w", encoding="utf-8",
-    ) as out:
+    with (
+        source.open("r", encoding="utf-8", errors="ignore") as handle,
+        destination.open(
+            "w",
+            encoding="utf-8",
+        ) as out,
+    ):
         for line in handle:
             if line.startswith("#"):
                 if line.startswith("#path"):
@@ -207,7 +215,11 @@ def _convert_conn_to_csv(conn_log: Path, csv_path: Path, kv_path: Path) -> None:
             values = line.split("\t")
             selected = [values[i] if i < len(values) else "" for i in indices]
             writer.writerow(selected)
-            kv_pairs = [f"{key}={value}" for key, value in zip(headers, selected, strict=False) if value and value != "-"]
+            kv_pairs = [
+                f"{key}={value}"
+                for key, value in zip(headers, selected, strict=False)
+                if value and value != "-"
+            ]
             if kv_pairs:
                 kv_file.write(" ".join(kv_pairs) + "\n")
 

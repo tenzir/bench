@@ -97,7 +97,9 @@ class KafkaFixtureTest(unittest.TestCase):
             )
             try:
                 with (
-                    patch("tenzir_bench.kafka_fixture.shutil.which", return_value="/usr/bin/docker"),
+                    patch(
+                        "tenzir_bench.kafka_fixture.shutil.which", return_value="/usr/bin/docker"
+                    ),
                     patch("tenzir_bench.kafka_fixture.subprocess.run", side_effect=_fake_run),
                     patch("tenzir_bench.kafka_fixture.subprocess.Popen", side_effect=_FakePopen),
                     patch("tenzir_bench.kafka_fixture.time.sleep"),
@@ -128,14 +130,32 @@ class KafkaFixtureTest(unittest.TestCase):
         flat_commands = [" ".join(command) for command in commands]
         self.assertTrue(any("docker compose version" == command for command in flat_commands))
         self.assertTrue(any(" up -d redpanda" in command for command in flat_commands))
-        self.assertTrue(any(" rpk topic list --brokers 127.0.0.1:9092" in command for command in flat_commands))
-        self.assertTrue(any(" rpk topic delete bench --brokers 127.0.0.1:9092" in command for command in flat_commands))
-        self.assertTrue(any(" rpk topic create bench --partitions 1 --replicas 1 --brokers 127.0.0.1:9092" in command for command in flat_commands))
+        self.assertTrue(
+            any(" rpk topic list --brokers 127.0.0.1:9092" in command for command in flat_commands)
+        )
+        self.assertTrue(
+            any(
+                " rpk topic delete bench --brokers 127.0.0.1:9092" in command
+                for command in flat_commands
+            )
+        )
+        self.assertTrue(
+            any(
+                " rpk topic create bench --partitions 1 --replicas 1 --brokers 127.0.0.1:9092"
+                in command
+                for command in flat_commands
+            )
+        )
         self.assertEqual(
-            sum(" rpk topic produce bench --brokers 127.0.0.1:9092" in command for command in flat_commands),
+            sum(
+                " rpk topic produce bench --brokers 127.0.0.1:9092" in command
+                for command in flat_commands
+            ),
             1,
         )
-        self.assertTrue(any(" down --volumes --remove-orphans" in command for command in flat_commands))
+        self.assertTrue(
+            any(" down --volumes --remove-orphans" in command for command in flat_commands)
+        )
 
     def test_kafka_fixture_reports_missing_docker_compose(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

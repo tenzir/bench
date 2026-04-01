@@ -184,7 +184,12 @@ def _load_spec_entries(
             continue
         loaded_roots.add(benchmark_root)
         definitions.extend(_load_benchmark_dir(benchmark_root, version=version))
-    definitions.sort(key=lambda definition: (definition.benchmark_id or definition.id, definition.implementation_id or definition.id))
+    definitions.sort(
+        key=lambda definition: (
+            definition.benchmark_id or definition.id,
+            definition.implementation_id or definition.id,
+        )
+    )
     return definitions
 
 
@@ -243,7 +248,9 @@ def _parse_spec_implementation(
     description = _optional_str(implementation, "description", path, prefix="bench")
     min_version = _optional_str(implementation, "min_version", path, prefix="bench")
     max_version = _optional_str(implementation, "max_version", path, prefix="bench")
-    tenzir_args = _parse_string_list(implementation.get("tenzir_args") or [], path, "bench.tenzir_args")
+    tenzir_args = _parse_string_list(
+        implementation.get("tenzir_args") or [], path, "bench.tenzir_args"
+    )
     tags = _merge_tags(
         _parse_tags(metadata.get("tags") or {}, path, "bench.yaml tags"),
         _parse_tags(implementation.get("tags") or {}, path, "bench.tags"),
@@ -279,7 +286,9 @@ def _parse_spec_implementation(
     if not isinstance(runner, str):
         raise BenchmarkError(f"{path}: bench.yaml runner must be a string")
     runtime = _parse_runtime(metadata.get("runtime") or {}, path)
-    implementation_description = description or _optional_str(metadata, "description", path, prefix="bench.yaml")
+    implementation_description = description or _optional_str(
+        metadata, "description", path, prefix="bench.yaml"
+    )
     return BenchmarkDefinition(
         path=path,
         id=f"{benchmark_id}/{implementation_id}",
@@ -346,7 +355,9 @@ def _merge_tags(shared: dict[str, str], implementation: dict[str, str]) -> dict[
 
 
 def _parse_tags(value: object, path: Path, field_name: str) -> dict[str, str]:
-    if isinstance(value, dict) and all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+    if isinstance(value, dict) and all(
+        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+    ):
         return dict(value)
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return {item: "" for item in value}
@@ -362,7 +373,9 @@ def _parse_string_list(value: object, path: Path, field_name: str) -> list[str]:
 
 
 def _parse_mapping_str(value: object, path: Path, field_name: str) -> dict[str, str]:
-    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+    if not isinstance(value, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in value.items()
+    ):
         raise BenchmarkError(f"{path}: {field_name} must be a mapping of strings")
     return dict(value)
 
@@ -377,7 +390,9 @@ def _parse_runtime(value: object, path: Path) -> BenchmarkRuntime:
         raise BenchmarkError(f"{path}: runtime.warmup_runs must be a non-negative integer")
     if not isinstance(measurement_runs, int) or measurement_runs <= 0:
         raise BenchmarkError(f"{path}: runtime.measurement_runs must be a positive integer")
-    if timeout_seconds is not None and (not isinstance(timeout_seconds, int) or timeout_seconds <= 0):
+    if timeout_seconds is not None and (
+        not isinstance(timeout_seconds, int) or timeout_seconds <= 0
+    ):
         raise BenchmarkError(f"{path}: runtime.timeout_seconds must be a positive integer")
     return BenchmarkRuntime(
         warmup_runs=warmup_runs,

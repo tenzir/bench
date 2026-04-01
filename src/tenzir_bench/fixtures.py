@@ -96,7 +96,9 @@ class FixtureSelection:
             )
 
 
-_CONTEXT: ContextVar[FixtureContext | None] = ContextVar("tenzir_bench_fixture_context", default=None)
+_CONTEXT: ContextVar[FixtureContext | None] = ContextVar(
+    "tenzir_bench_fixture_context", default=None
+)
 _ACTIVE_SELECTION: ContextVar[frozenset[str]] = ContextVar(
     "tenzir_bench_active_fixtures",
     default=frozenset(),
@@ -330,7 +332,9 @@ class FixtureController:
     def __init__(self, name: str, factory: FixtureFactory) -> None:
         self.name = name
         self._factory = factory
-        self._state: tuple[AbstractContextManager[dict[str, str] | None], dict[str, str]] | None = None
+        self._state: tuple[AbstractContextManager[dict[str, str] | None], dict[str, str]] | None = (
+            None
+        )
         self._hooks: dict[str, Callable[..., Any]] = {}
 
     def start(self) -> dict[str, str]:

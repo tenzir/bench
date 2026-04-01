@@ -83,7 +83,9 @@ class ExecutorTest(unittest.TestCase):
             context = executor.create_context(definition)
 
             assert context is not None
-            self.assertEqual(context.dataset_path.read_text(encoding="utf-8"), '{"event_type":"flow"}\n')
+            self.assertEqual(
+                context.dataset_path.read_text(encoding="utf-8"), '{"event_type":"flow"}\n'
+            )
             self.assertTrue((paths.datasets_cache_dir / "perf" / "route53_sample.ndjson").exists())
 
     def test_create_context_downloads_remote_input_source(self) -> None:
@@ -124,7 +126,9 @@ class ExecutorTest(unittest.TestCase):
             )
             payload = b'{"event_type":"flow"}\n{"event_type":"dns"}\n'
 
-            with patch("tenzir_bench.executor.urllib.request.urlopen", return_value=io.BytesIO(payload)) as urlopen:
+            with patch(
+                "tenzir_bench.executor.urllib.request.urlopen", return_value=io.BytesIO(payload)
+            ) as urlopen:
                 context = executor.create_context(definition)
 
             assert context is not None
@@ -132,7 +136,9 @@ class ExecutorTest(unittest.TestCase):
             self.assertTrue((paths.datasets_cache_dir / "cloudwatch" / "route53.ndjson").exists())
             request = urlopen.call_args.args[0]
             self.assertIsInstance(request, urllib.request.Request)
-            self.assertEqual(request.full_url, "https://datasets.tenzir.tools/CloudWatch/route53.ndjson")
+            self.assertEqual(
+                request.full_url, "https://datasets.tenzir.tools/CloudWatch/route53.ndjson"
+            )
 
     def test_ensure_reports_stages_generated_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -179,7 +185,10 @@ class ExecutorTest(unittest.TestCase):
             output_dir = root / "staged"
 
             with (
-                patch("tenzir_bench.executor._detect_build", return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir")),
+                patch(
+                    "tenzir_bench.executor._detect_build",
+                    return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir"),
+                ),
                 patch.object(executor, "execute", return_value=[report]) as execute,
             ):
                 staged_dir = executor.ensure_reports((context,), output_dir, force=True)
@@ -240,7 +249,10 @@ class ExecutorTest(unittest.TestCase):
 
             stdout = io.StringIO()
             with (
-                patch("tenzir_bench.executor._detect_build", return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir")),
+                patch(
+                    "tenzir_bench.executor._detect_build",
+                    return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir"),
+                ),
                 patch.object(BenchmarkExecutor, "_validate_invocation", return_value=None),
                 patch("tenzir_bench.executor._LOG.info"),
                 redirect_stdout(stdout),
@@ -248,7 +260,9 @@ class ExecutorTest(unittest.TestCase):
                 reports = executor.execute(context)
 
         output = stdout.getvalue()
-        self.assertEqual(output.count("# example-benchmark (/tmp/tenzir-link --global-flag --neo)"), 1)
+        self.assertEqual(
+            output.count("# example-benchmark (/tmp/tenzir-link --global-flag --neo)"), 1
+        )
         self.assertIn("env BENCHMARK_INPUT_PATH=", output)
         self.assertIn("benchmarks/operators/example.tql", output)
         self.assertNotIn("/_pipelines/", output)
@@ -331,7 +345,10 @@ class ExecutorTest(unittest.TestCase):
 
                 stdout = io.StringIO()
                 with (
-                    patch("tenzir_bench.executor._detect_build", return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir")),
+                    patch(
+                        "tenzir_bench.executor._detect_build",
+                        return_value=BuildInfo("v1.2.3", "Release", "/tmp/tenzir"),
+                    ),
                     patch.object(BenchmarkExecutor, "_validate_invocation", return_value=None),
                     patch("tenzir_bench.executor._git_revision", return_value="deadbeef"),
                     patch("tenzir_bench.executor._LOG.info"),
@@ -364,7 +381,9 @@ class ExecutorTest(unittest.TestCase):
                 ("after", "measurement", 1),
             ],
         )
-        self.assertEqual([event for event in events if event[0] == "options"], [("options", "bench", -1)])
+        self.assertEqual(
+            [event for event in events if event[0] == "options"], [("options", "bench", -1)]
+        )
         output = stdout.getvalue()
         self.assertIn("DEMO_FIXTURE=fixture-bench", output)
 

@@ -27,7 +27,9 @@ class RunnerMetrics:
 class Runner:
     name: str
 
-    def run(self, command: Sequence[str], env: Mapping[str, str], timeout: int | None) -> RunnerMetrics:
+    def run(
+        self, command: Sequence[str], env: Mapping[str, str], timeout: int | None
+    ) -> RunnerMetrics:
         raise NotImplementedError
 
 
@@ -38,7 +40,9 @@ class TimeRunner(Runner):
         time_bin = shutil.which("time") or "/usr/bin/time"
         self.time_bin = time_bin
 
-    def run(self, command: Sequence[str], env: Mapping[str, str], timeout: int | None) -> RunnerMetrics:
+    def run(
+        self, command: Sequence[str], env: Mapping[str, str], timeout: int | None
+    ) -> RunnerMetrics:
         fmt = "elapsed=%e\nuser=%U\nsystem=%S\nmaxrss=%M"
         with tempfile.NamedTemporaryFile(delete=False) as metrics_file:
             metrics_path = metrics_file.name

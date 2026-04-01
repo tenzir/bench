@@ -60,7 +60,9 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     if description is not None and not isinstance(description, str):
         raise BenchmarkError(f"{path}: benchmark.description must be a string")
     tags = benchmark.get("tags") or {}
-    if not isinstance(tags, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in tags.items()):
+    if not isinstance(tags, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in tags.items()
+    ):
         raise BenchmarkError(f"{path}: benchmark.tags must be a mapping of strings")
     min_version = benchmark.get("min_version")
     if min_version is not None and not isinstance(min_version, str):
@@ -94,9 +96,13 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     if not input_measure and not output_measure:
         raise BenchmarkError(f"{path}: one of input.measure or output.measure must be true")
     if output_measure and output_path is None:
-        raise BenchmarkError(f"{path}: benchmark.output.path is required when output.measure is true")
+        raise BenchmarkError(
+            f"{path}: benchmark.output.path is required when output.measure is true"
+        )
     env = benchmark.get("env") or {}
-    if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
+    if not isinstance(env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in env.items()
+    ):
         raise BenchmarkError(f"{path}: benchmark.env must be a mapping of strings")
     fixture_specs = _parse_fixture_specs(benchmark, path)
     tenzir_args = benchmark.get("tenzir_args") or []
@@ -112,11 +118,19 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     measurement_runs = runtime_section.get("measurement_runs", 1)
     timeout_seconds = runtime_section.get("timeout_seconds")
     if not isinstance(warmup_runs, int) or warmup_runs < 0:
-        raise BenchmarkError(f"{path}: benchmark.runtime.warmup_runs must be a non-negative integer")
+        raise BenchmarkError(
+            f"{path}: benchmark.runtime.warmup_runs must be a non-negative integer"
+        )
     if not isinstance(measurement_runs, int) or measurement_runs <= 0:
-        raise BenchmarkError(f"{path}: benchmark.runtime.measurement_runs must be a positive integer")
-    if timeout_seconds is not None and (not isinstance(timeout_seconds, int) or timeout_seconds <= 0):
-        raise BenchmarkError(f"{path}: benchmark.runtime.timeout_seconds must be a positive integer")
+        raise BenchmarkError(
+            f"{path}: benchmark.runtime.measurement_runs must be a positive integer"
+        )
+    if timeout_seconds is not None and (
+        not isinstance(timeout_seconds, int) or timeout_seconds <= 0
+    ):
+        raise BenchmarkError(
+            f"{path}: benchmark.runtime.timeout_seconds must be a positive integer"
+        )
     runtime = BenchmarkRuntime(
         warmup_runs=warmup_runs,
         measurement_runs=measurement_runs,
@@ -173,7 +187,9 @@ def _parse_fixture_specs(
     path: pathlib.Path,
 ) -> tuple[FixtureSpec, ...]:
     if "fixture" in benchmark and "fixtures" in benchmark:
-        raise BenchmarkError(f"{path}: benchmark.fixture and benchmark.fixtures are mutually exclusive")
+        raise BenchmarkError(
+            f"{path}: benchmark.fixture and benchmark.fixtures are mutually exclusive"
+        )
     if "fixture" in benchmark:
         return _normalize_fixture_specs(benchmark["fixture"], path)
     if "fixtures" in benchmark:

@@ -32,14 +32,18 @@ def test_render_grouped_markdown_groups_builds_by_implementation() -> None:
                 "candidate",
                 {
                     "from_kafka_1m/neo": _report("from_kafka_1m", "neo", seconds=1.0, rss_kb=1024),
-                    "from_kafka_1m/legacy": _report("from_kafka_1m", "legacy", seconds=2.0, rss_kb=2048),
+                    "from_kafka_1m/legacy": _report(
+                        "from_kafka_1m", "legacy", seconds=2.0, rss_kb=2048
+                    ),
                 },
             ),
             (
                 "main",
                 {
                     "from_kafka_1m/neo": _report("from_kafka_1m", "neo", seconds=1.5, rss_kb=1536),
-                    "from_kafka_1m/legacy": _report("from_kafka_1m", "legacy", seconds=2.5, rss_kb=3072),
+                    "from_kafka_1m/legacy": _report(
+                        "from_kafka_1m", "legacy", seconds=2.5, rss_kb=3072
+                    ),
                 },
             ),
         ],

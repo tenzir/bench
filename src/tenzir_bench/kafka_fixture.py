@@ -130,8 +130,7 @@ def _wait_for_cluster(
         last_detail = (result.stderr or result.stdout or "").strip() or "no output"
         time.sleep(poll_interval_seconds)
     raise RuntimeError(
-        "kafka fixture did not become ready within "
-        f"{timeout_seconds:.0f}s: {last_detail}",
+        f"kafka fixture did not become ready within {timeout_seconds:.0f}s: {last_detail}",
     )
 
 
