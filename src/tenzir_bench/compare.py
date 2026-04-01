@@ -64,6 +64,10 @@ def resolve_binaries(
     return resolved
 
 
+def resolve_entry(paths: BenchPaths, value: str) -> Path:
+    return _resolve_entry(paths, value)
+
+
 def _resolve_entry(paths: BenchPaths, value: str) -> Path:
     if value.startswith("docker://"):
         image = value[len("docker://") :].strip()

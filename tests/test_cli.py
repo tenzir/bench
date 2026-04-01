@@ -10,6 +10,7 @@ from tenzir_bench.cli import (
     _find_repo_root,
     _parse_compare_arguments,
     _render_run_summary,
+    _resolve_run_target,
     main,
 )
 from tenzir_bench.compare import CompareBuild
@@ -152,6 +153,32 @@ class CliTest(unittest.TestCase):
         self.assertEqual(load_contexts.call_args.kwargs["root"], root)
         self.assertEqual(load_contexts.call_args.kwargs["benchmarks"], ("from_kafka_route53",))
 
+    def test_resolve_run_target_accepts_docker_image(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cache = root / "cache"
+            state = root / "state"
+            paths = type(
+                "Paths",
+                (),
+                {
+                    "cache_dir": cache,
+                    "state_dir": state,
+                    "ensure_dir": staticmethod(
+                        lambda path: path.mkdir(parents=True, exist_ok=True) or path
+                    ),
+                },
+            )()
+
+            resolved = _resolve_run_target(
+                paths,
+                tenzir_target="docker://ghcr.io/tenzir/tenzir:test",
+                tenzir_bin=None,
+            )
+
+        self.assertEqual(resolved.suffix, ".sh")
+        self.assertEqual(resolved.parent.name, "docker")
+
     def test_compare_forwards_dry_run(self) -> None:
         cli_runner = CliRunner()
         with (
@@ -207,6 +234,50 @@ class CliTest(unittest.TestCase):
 
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("mutually exclusive", result.output)
+
+    def test_run_rejects_tenzir_and_tenzir_bin_together(self) -> None:
+        cli_runner = CliRunner()
+        result = cli_runner.invoke(
+            main,
+            [
+                "run",
+                "--tenzir",
+                "docker://ghcr.io/tenzir/tenzir:test",
+                "--tenzir-bin",
+                "/tmp/tenzir",
+            ],
+        )
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("mutually exclusive", result.output)
+
+    def test_run_accepts_docker_target(self) -> None:
+        cli_runner = CliRunner()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "tenzir"
+            (root / "bench").mkdir(parents=True)
+            cwd = root / "work"
+            cwd.mkdir(parents=True)
+            with (
+                patch("tenzir_bench.cli.Path.cwd", return_value=cwd),
+                patch("tenzir_bench.cli._load_contexts", return_value=[]),
+                patch("tenzir_bench.cli.BenchmarkExecutor") as executor_cls,
+            ):
+                result = cli_runner.invoke(
+                    main,
+                    [
+                        "run",
+                        "--tenzir",
+                        "docker://ghcr.io/tenzir/tenzir:test",
+                        "--benchmark",
+                        "from_kafka_route53",
+                    ],
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        resolved = executor_cls.call_args.args[1]
+        self.assertEqual(resolved.parent.name, "docker")
+        self.assertEqual(resolved.suffix, ".sh")
 
     def test_find_repo_root_walks_upward_to_bench(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

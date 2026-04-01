@@ -10,7 +10,7 @@ from typing import TypeAlias
 
 import click
 
-from .compare import resolve_binaries, run_compare
+from .compare import resolve_binaries, resolve_entry, run_compare
 from .datasets import DatasetManager
 from .definitions import BenchmarkDefinition
 from .evaluation import evaluate as evaluate_results
@@ -66,6 +66,11 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--filter", "pattern", help="Run only benchmarks matching the glob pattern.")
 @click.option(
+    "--tenzir",
+    "tenzir_target",
+    help="Path to the Tenzir binary or docker image using docker://IMAGE.",
+)
+@click.option(
     "--benchmark",
     "benchmarks",
     multiple=True,
@@ -88,6 +93,7 @@ def prepare(paths: BenchPaths, force: bool) -> None:
 def run(
     paths: BenchPaths,
     pattern: str | None,
+    tenzir_target: str | None,
     benchmarks: tuple[str, ...],
     tenzir_bin: Path | None,
     validate: bool,
@@ -100,7 +106,7 @@ def run(
         _validate_mode_flags(validate, dry_run)
         if pattern and benchmarks:
             raise click.BadParameter("--filter and --benchmark are mutually exclusive")
-        tenzir = tenzir_bin or _resolve_tenzir()
+        tenzir = _resolve_run_target(paths, tenzir_target=tenzir_target, tenzir_bin=tenzir_bin)
         registry = RunnerRegistry()
         executor = BenchmarkExecutor(
             paths,
@@ -234,8 +240,26 @@ if __name__ == "__main__":  # pragma: no cover
 def _resolve_tenzir() -> Path:
     resolved = shutil.which("tenzir")
     if not resolved:
-        raise click.ClickException("Unable to locate 'tenzir' executable; specify --tenzir-bin")
+        raise click.ClickException(
+            "Unable to locate 'tenzir' executable; specify --tenzir or --tenzir-bin"
+        )
     return Path(resolved)
+
+
+def _resolve_run_target(
+    paths: BenchPaths,
+    *,
+    tenzir_target: str | None,
+    tenzir_bin: Path | None,
+) -> Path:
+    if tenzir_target is not None and tenzir_bin is not None:
+        raise click.BadParameter("--tenzir and --tenzir-bin are mutually exclusive")
+    if tenzir_target is not None:
+        try:
+            return resolve_entry(paths, tenzir_target)
+        except (FileNotFoundError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+    return tenzir_bin or _resolve_tenzir()
 
 
 def _validate_mode_flags(validate: bool, dry_run: bool) -> None:
