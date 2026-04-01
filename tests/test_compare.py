@@ -67,7 +67,7 @@ class CompareHelpersTest(unittest.TestCase):
             dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
             dataset.parent.mkdir(parents=True, exist_ok=True)
             dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-            benchmark = root / "benchmarks" / "operators" / "example.tql"
+            benchmark = root / "examples" / "benchmarks" / "operators" / "example.tql"
             benchmark.parent.mkdir(parents=True, exist_ok=True)
             benchmark.write_text(
                 """---

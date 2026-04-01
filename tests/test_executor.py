@@ -153,7 +153,7 @@ class ExecutorTest(unittest.TestCase):
             dataset.parent.mkdir(parents=True, exist_ok=True)
             dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
             definition = BenchmarkDefinition(
-                path=Path("benchmarks/operators/example.tql"),
+                path=Path("examples/benchmarks/operators/example.tql"),
                 id="example-benchmark",
                 description=None,
                 tags={},
@@ -217,7 +217,7 @@ class ExecutorTest(unittest.TestCase):
             dataset.parent.mkdir(parents=True, exist_ok=True)
             dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
             definition = BenchmarkDefinition(
-                path=Path("benchmarks/operators/example.tql"),
+                path=Path("examples/benchmarks/operators/example.tql"),
                 id="example-benchmark",
                 description=None,
                 tags={},
@@ -264,7 +264,7 @@ class ExecutorTest(unittest.TestCase):
             output.count("# example-benchmark (/tmp/tenzir-link --global-flag --neo)"), 1
         )
         self.assertIn("env BENCHMARK_INPUT_PATH=", output)
-        self.assertIn("benchmarks/operators/example.tql", output)
+        self.assertIn("examples/benchmarks/operators/example.tql", output)
         self.assertNotIn("/_pipelines/", output)
         self.assertEqual(len(runner.calls), 4)
         self.assertEqual(len(reports), 3)
@@ -307,7 +307,7 @@ class ExecutorTest(unittest.TestCase):
                 dataset.parent.mkdir(parents=True, exist_ok=True)
                 dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
                 definition = BenchmarkDefinition(
-                    path=root / "benchmarks" / "operators" / "fixture-example.tql",
+                    path=root / "examples" / "benchmarks" / "operators" / "fixture-example.tql",
                     id="fixture-benchmark",
                     description=None,
                     tags={},
@@ -405,7 +405,7 @@ class ExecutorTest(unittest.TestCase):
                 dataset.parent.mkdir(parents=True, exist_ok=True)
                 dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
                 definition = BenchmarkDefinition(
-                    path=root / "benchmarks" / "operators" / "dry-run.tql",
+                    path=root / "examples" / "benchmarks" / "operators" / "dry-run.tql",
                     id="dry-run",
                     description=None,
                     tags={},

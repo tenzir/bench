@@ -17,7 +17,7 @@ class KafkaFixtureTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            compose_file = root / "benchmarks" / "integrations" / "compose.yaml"
+            compose_file = root / "examples" / "benchmarks" / "integrations" / "compose.yaml"
             compose_file.parent.mkdir(parents=True, exist_ok=True)
             compose_file.write_text("services: {}\n", encoding="utf-8")
             benchmark_path = compose_file.parent / "suricata-from-kafka.tql"
@@ -160,7 +160,7 @@ class KafkaFixtureTest(unittest.TestCase):
     def test_kafka_fixture_reports_missing_docker_compose(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            compose_file = root / "benchmarks" / "integrations" / "compose.yaml"
+            compose_file = root / "examples" / "benchmarks" / "integrations" / "compose.yaml"
             compose_file.parent.mkdir(parents=True, exist_ok=True)
             compose_file.write_text("services: {}\n", encoding="utf-8")
             definition = BenchmarkDefinition(

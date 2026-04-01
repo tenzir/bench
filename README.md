@@ -140,7 +140,7 @@ For quick experiments you can point to Docker images as build candidates by
 prefixing them with `docker://`, e.g.
 
 ```bash
-bench compare --base docker://ghcr.io/tenzir/tenzir:v5.18.0 --candidate docker://ghcr.io/tenzir/tenzir:main benchmarks/operators
+bench compare --base docker://ghcr.io/tenzir/tenzir:v5.18.0 --candidate docker://ghcr.io/tenzir/tenzir:main examples/benchmarks/operators
 ```
 
 The harness automatically mounts the dataset and state directories into the
@@ -199,9 +199,9 @@ benchmark:
 `fixture` and `fixtures` cannot be used together.
 
 Fixture modules are discovered from `fixtures.py` files between the current
-working directory and the benchmark file. A benchmark under
-`benchmarks/integrations/from-kafka.tql` can therefore use a colocated
-`benchmarks/integrations/fixtures.py`.
+working directory and the benchmark file. An example benchmark under
+`examples/benchmarks/integrations/from-kafka.tql` can therefore use a colocated
+`examples/benchmarks/integrations/fixtures.py`.
 
 Fixture modules use the `tenzir_bench.fixtures` API:
 
@@ -236,13 +236,15 @@ iterations. Fixture-provided environment variables are merged into the benchmark
 environment and forwarded automatically when the benchmark runs inside a Docker
 wrapper via `bench compare`.
 
-This repository now ships a concrete Kafka fixture and example benchmark under
-`benchmarks/integrations/` for `from_kafka` scenarios.
+This repository now ships runnable examples under `examples/`, including a
+concrete Kafka fixture and example benchmark under
+`examples/benchmarks/integrations/` for `from_kafka` scenarios.
 
 To add a new benchmark:
 
-1. Create `benchmark/benchmarks/<category>/<id>.tql` with the required
-   frontmatter and pipeline.
+1. Create `bench/benchmarks/<id>/` in the target repository for real benchmarks,
+   or add a runnable sample under `examples/benchmarks/<category>/<id>.tql` in
+   this repository.
 2. Run `bench run path/to/<id>.tql` to generate measurement reports.
 3. Validate results with `bench eval`.
 

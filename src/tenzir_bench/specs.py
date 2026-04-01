@@ -116,7 +116,7 @@ def _load_bench_root(
 
 
 def _discover_legacy_definitions(root: Path, pattern: str | None) -> list[BenchmarkDefinition]:
-    legacy_root = root / "benchmarks"
+    legacy_root = root / "examples" / "benchmarks"
     if pattern:
         candidate = Path(pattern)
         if candidate.exists():

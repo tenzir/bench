@@ -302,6 +302,8 @@ def _discover_selected_definitions(
         root / selector,
         root / "bench" / selector,
         root / "bench" / "benchmarks" / selector,
+        root / "examples" / selector,
+        root / "examples" / "benchmarks" / selector,
     ]
     for candidate in candidates:
         if candidate.exists():

@@ -52,7 +52,7 @@ class CliTest(unittest.TestCase):
                 "--candidate",
                 "/tmp/candidate-b",
                 "--neo",
-                "benchmarks/operators/suricata-parse-json.tql",
+                "examples/benchmarks/operators/suricata-parse-json.tql",
             ],
         )
 
@@ -64,7 +64,9 @@ class CliTest(unittest.TestCase):
                 ("/tmp/candidate-b", False, ("--neo",)),
             ],
         )
-        self.assertEqual(benchmarks, [Path("benchmarks/operators/suricata-parse-json.tql")])
+        self.assertEqual(
+            benchmarks, [Path("examples/benchmarks/operators/suricata-parse-json.tql")]
+        )
 
     def test_run_forwards_extra_tenzir_args(self) -> None:
         cli_runner = CliRunner()
@@ -79,7 +81,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/operators/suricata-parse-json.tql",
                     "--validate",
                     "--verbose",
                     "--neo",
@@ -93,7 +95,8 @@ class CliTest(unittest.TestCase):
         self.assertFalse(executor_cls.call_args.kwargs["dry_run"])
         self.assertTrue(executor_cls.call_args.kwargs["verbose"])
         self.assertEqual(
-            load_contexts.call_args.kwargs["pattern"], "benchmarks/operators/suricata-parse-json.tql"
+            load_contexts.call_args.kwargs["pattern"],
+            "examples/benchmarks/operators/suricata-parse-json.tql",
         )
 
     def test_run_forwards_dry_run(self) -> None:
@@ -109,7 +112,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/operators/suricata-parse-json.tql",
                     "--dry-run",
                     "--verbose",
                 ],
@@ -167,7 +170,7 @@ class CliTest(unittest.TestCase):
                     "/tmp/base",
                     "--candidate",
                     "/tmp/candidate",
-                    "benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/operators/suricata-parse-json.tql",
                 ],
             )
 

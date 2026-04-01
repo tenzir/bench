@@ -9,7 +9,7 @@ class FixtureLoadingTest(unittest.TestCase):
     def test_load_fixture_modules_imports_nearby_fixtures_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            benchmark = root / "benchmarks" / "integrations" / "from-kafka.tql"
+            benchmark = root / "examples" / "benchmarks" / "integrations" / "from-kafka.tql"
             benchmark.parent.mkdir(parents=True, exist_ok=True)
             benchmark.write_text("discard\n", encoding="utf-8")
             fixture_file = benchmark.parent / "fixtures.py"
