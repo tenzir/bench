@@ -101,7 +101,14 @@ class BenchmarkExecutor:
         if input_path.is_absolute():
             return input_path.resolve()
         dataset = (self.paths.datasets_cache_dir / input_path).resolve()
-        if dataset.exists() or definition.input_source is None:
+        if dataset.exists():
+            return dataset
+        local_input = (definition.path.parent / input_path).resolve()
+        if local_input.exists():
+            dataset.parent.mkdir(parents=True, exist_ok=True)
+            _ = shutil.copy2(local_input, dataset)
+            return dataset
+        if definition.input_source is None:
             return dataset
         dataset.parent.mkdir(parents=True, exist_ok=True)
         source_value = definition.input_source.strip()
@@ -301,9 +308,7 @@ class BenchmarkExecutor:
         )
         if proc.returncode != 0:
             message = proc.stderr.strip() or proc.stdout.strip() or str(proc.returncode)
-            raise RuntimeError(
-                f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}"
-            )
+            raise RuntimeError(f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}")
         self._validated_invocation = True
 
     def _print_dry_run_invocation(self, context: BenchmarkContext) -> None:
@@ -393,6 +398,7 @@ class BuildInfo:
     @property
     def build_id(self) -> str:
         return self.version or "unknown"
+
 
 def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
     try:

@@ -72,9 +72,7 @@ def _reference_prefixes(
     commits: Sequence[MainCommitMetadata],
 ) -> set[PurePosixPath]:
     prefixes = {
-        PurePosixPath("refs") / "tags" / tag
-        for release in releases
-        if (tag := release["tag"])
+        PurePosixPath("refs") / "tags" / tag for release in releases if (tag := release["tag"])
     }
     if commits:
         sha = commits[0]["sha"]

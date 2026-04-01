@@ -17,17 +17,15 @@ if TYPE_CHECKING:
     ListObjectsV2OutputTypeDef = _ListObjectsV2OutputTypeDef
     ObjectTypeDef = _ObjectTypeDef
 else:
+
     class ObjectTypeDef(TypedDict, total=False):
         Key: str
-
 
     class ListObjectsV2OutputTypeDef(TypedDict, total=False):
         Contents: list[ObjectTypeDef]
 
-
     class ListObjectsV2Paginator(Protocol):
         def paginate(self, **kwargs: object) -> list[ListObjectsV2OutputTypeDef]: ...
-
 
     class S3Client(Protocol):
         def upload_file(self, filename: str, bucket: str, key: str) -> object: ...

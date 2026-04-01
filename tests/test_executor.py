@@ -140,6 +140,53 @@ class ExecutorTest(unittest.TestCase):
                 request.full_url, "https://datasets.tenzir.tools/CloudWatch/route53.ndjson"
             )
 
+    def test_create_context_stages_repo_local_input_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            benchmark_dir = root / "bench" / "benchmarks" / "export_catalog_lookup_concept"
+            benchmark_dir.mkdir(parents=True, exist_ok=True)
+            local_seed = benchmark_dir / "suricata-dns.seed.ndjson"
+            local_seed.write_text('{"event_type":"dns"}\n', encoding="utf-8")
+            definition = BenchmarkDefinition(
+                path=benchmark_dir / "neo.tql",
+                id="export_catalog_lookup_concept/neo",
+                description=None,
+                tags={},
+                min_version=None,
+                max_version=None,
+                input_path="suricata-dns.seed.ndjson",
+                input_source="synthetic",
+                input_events=1,
+                input_measure=True,
+                output_path=None,
+                output_measure=False,
+                env={},
+                fixtures=(),
+                tenzir_args=[],
+                runner="time",
+                runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+                pipeline_body="discard",
+            )
+            executor = BenchmarkExecutor(
+                paths,
+                Path("/tmp/tenzir-link"),
+                RunnerRegistry([FakeRunner()]),
+            )
+
+            context = executor.create_context(definition)
+
+            assert context is not None
+            self.assertEqual(
+                context.dataset_path.read_text(encoding="utf-8"), '{"event_type":"dns"}\n'
+            )
+            self.assertTrue((paths.datasets_cache_dir / "suricata-dns.seed.ndjson").exists())
+
     def test_ensure_reports_stages_generated_reports(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -281,6 +281,7 @@ def _normalize_factory(factory: _FactoryCallable) -> FixtureFactory:
                 yield {}
 
             return _attach_hooks(_ctx_none())
+
         @contextmanager
         def _ctx_dict() -> Iterator[dict[str, str] | None]:
             yield result
