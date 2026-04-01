@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 
@@ -29,6 +30,15 @@ def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
+    return parse_report_payload(payload, path=path, artifact_id=artifact_id)
+
+
+def parse_report_payload(
+    payload: dict[str, Any],
+    *,
+    path: Path,
+    artifact_id: str | None = None,
+) -> Report | None:
     pipeline = payload.get("pipeline")
     if not pipeline:
         return None
@@ -95,7 +105,11 @@ def matches_identifier(actual: str | None, expected: str | None) -> bool:
     expected_variants = {value for value in (expected, _trim_prefix(expected)) if value}
     if actual_variants & expected_variants:
         return True
-    if any(_commitish_matches(actual_variant, expected_variant) for actual_variant in actual_variants for expected_variant in expected_variants):
+    if any(
+        _commitish_matches(actual_variant, expected_variant)
+        for actual_variant in actual_variants
+        for expected_variant in expected_variants
+    ):
         return True
     return False
 

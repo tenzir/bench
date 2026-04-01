@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from .hardware import current_hardware_key
 from .metadata import GitHubMetadata
 from .paths import BenchPaths
-from .reports import load_reports, select_fastest
+from .reports import Report, load_reports, select_fastest
+from .references import load_reference_reports
 
 _LOG = logging.getLogger(__name__)
 
@@ -30,17 +33,31 @@ def evaluate(paths: BenchPaths, runs_dir: Path, base_dir: Path | None, compact: 
     main_commit = _latest_main(metadata)
 
     candidate_reports = select_fastest(load_reports(runs_dir))
+    candidate_target = _single_target(candidate_reports)
+    candidate_hardware = _single_hardware(candidate_reports) or current_hardware_key()
     baseline_reports = {}
     if base_dir:
         baseline_reports = select_fastest(load_reports(base_dir))
     elif release_tag:
-        baseline_reports = select_fastest(load_reports(paths.results_cache_dir, artifact_filter=release_tag))
+        baseline_reports = _reports_by_pipeline(
+            load_reference_reports(
+                paths.results_cache_dir / "refs" / "tags" / release_tag,
+                hardware_key=candidate_hardware,
+                target=candidate_target,
+            ),
+        )
     else:
         _LOG.warning("Unable to determine latest release tag; skipping release baseline")
 
     main_reports = {}
     if main_commit:
-        main_reports = select_fastest(load_reports(paths.results_cache_dir, artifact_filter=main_commit))
+        main_reports = _reports_by_pipeline(
+            load_reference_reports(
+                paths.results_cache_dir / "refs" / "main" / main_commit,
+                hardware_key=candidate_hardware,
+                target=candidate_target,
+            ),
+        )
         if not main_reports:
             _LOG.warning("No cached main branch results found for %s", main_commit)
     else:
@@ -70,6 +87,26 @@ def _latest_main(metadata: GitHubMetadata) -> str | None:
     if not commits:
         return None
     return commits[0]["sha"]
+
+
+def _reports_by_pipeline(
+    reports: Mapping[tuple[str, str], Report],
+) -> dict[str, Report]:
+    return {report.pipeline: report for report in reports.values()}
+
+
+def _single_target(reports: Mapping[str, Report]) -> str | None:
+    targets = {report.target for report in reports.values() if report.target}
+    if len(targets) == 1:
+        return next(iter(targets))
+    return None
+
+
+def _single_hardware(reports: Mapping[str, Report]) -> str | None:
+    hardware_keys = {report.hardware_key for report in reports.values() if report.hardware_key}
+    if len(hardware_keys) == 1:
+        return next(iter(hardware_keys))
+    return None
 
 
 def _print_compact_table(

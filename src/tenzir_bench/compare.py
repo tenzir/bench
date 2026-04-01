@@ -8,12 +8,21 @@ import re
 import shlex
 import shutil
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
 from .definitions import BenchmarkError
-from .executor import BenchmarkExecutor, BuildInfo, build_result_id
+from .executor import BenchmarkExecutor, BuildInfo, _infer_target, build_result_id
+from .hardware import current_hardware_key
 from .paths import BenchPaths
+from .publisher import Publisher
+from .references import (
+    ReportIdentity,
+    download_reference_reports,
+    missing_report_identities,
+    report_identity,
+)
 from .reports import Report, load_reports, select_fastest
 from .runners import RunnerRegistry
 from .specs import load_definitions_from_paths
@@ -21,13 +30,32 @@ from .specs import load_definitions_from_paths
 _LOG = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class CompareBuild:
+    label: str
+    binary: Path | None
+    force: bool = False
+    tenzir_args: tuple[str, ...] = ()
+    reference_destination: str | None = None
+    target: str | None = None
+    version: str | None = None
+
+
 def resolve_binaries(
     paths: BenchPaths,
     entries: Sequence[tuple[str, bool, tuple[str, ...]]],
-) -> list[tuple[Path, bool, tuple[str, ...]]]:
-    resolved: list[tuple[Path, bool, tuple[str, ...]]] = []
+) -> list[CompareBuild]:
+    resolved: list[CompareBuild] = []
     for value, force, tenzir_args in entries:
-        resolved.append((_resolve_entry(paths, value), force, tenzir_args))
+        binary = _resolve_entry(paths, value)
+        resolved.append(
+            CompareBuild(
+                label=str(value),
+                binary=binary,
+                force=force,
+                tenzir_args=tenzir_args,
+            ),
+        )
     if len(resolved) < 2:
         raise ValueError("compare requires at least two binaries")
     return resolved
@@ -51,7 +79,7 @@ def _resolve_entry(paths: BenchPaths, value: str) -> Path:
 
 def run_compare(
     paths: BenchPaths,
-    binaries: list[tuple[Path, bool, tuple[str, ...]]],
+    binaries: list[CompareBuild],
     compact: bool,
     benchmark_dirs: Sequence[Path],
     *,
@@ -59,76 +87,272 @@ def run_compare(
     dry_run: bool = False,
     verbose: bool = False,
 ) -> None:
-    registry = RunnerRegistry()
-    baseline_bin, baseline_force, baseline_args = binaries[0]
-    baseline_executor = BenchmarkExecutor(
+    build_reports = prepare_compare_build_reports(
         paths,
-        baseline_bin,
-        registry,
-        tenzir_args=baseline_args,
+        binaries,
+        benchmark_dirs,
         validate=validate,
         dry_run=dry_run,
         verbose=verbose,
     )
-    contexts = list(_discover_from_dirs(baseline_executor, benchmark_dirs))
-    if not contexts:
-        _LOG.error("No benchmarks found to execute")
+    if validate or dry_run:
         return
-
-    targets = [(baseline_bin, baseline_force, baseline_args, baseline_executor)]
-    for candidate_bin, candidate_force, candidate_args in binaries[1:]:
-        targets.append((
-            candidate_bin,
-            candidate_force,
-            candidate_args,
-            BenchmarkExecutor(
-                paths,
-                candidate_bin,
-                registry,
-                tenzir_args=candidate_args,
-                validate=validate,
-                dry_run=dry_run,
-                verbose=verbose,
-            ),
-        ))
-    if dry_run:
-        for _binary, _force, _tenzir_args, executor in targets:
-            for context in contexts:
-                executor.validate(context)
-        return
-    compare_root = paths.results_state_dir / "compare"
-    shutil.rmtree(compare_root, ignore_errors=True)
-    compare_root.mkdir(parents=True, exist_ok=True)
-    infos = [executor.build_info() for _, _, _, executor in targets]
-    labels = _unique_labels(
-        [
-            _display_label(info, binary, tenzir_args)
-            for (binary, _, tenzir_args, _), info in zip(targets, infos, strict=True)
-        ],
-        [binary for binary, _, _, _ in targets],
-    )
-    prepared_dirs: list[tuple[str, Path]] = []
-    for (binary, force, tenzir_args, executor), info, label in zip(targets, infos, labels, strict=True):
-        compare_dir = compare_root / _cache_key(info, binary, tenzir_args)
-        if validate:
-            for context in contexts:
-                executor.validate(context)
-            prepared_dirs.append((label, compare_dir))
-            continue
-        executor.ensure_reports(contexts, compare_dir, force=force)
-        prepared_dirs.append((label, compare_dir))
-
-    if validate:
-        return
-
-    baseline_label, baseline_dir = prepared_dirs[0]
-    candidate_dirs = prepared_dirs[1:]
-    baseline_reports = select_fastest(load_reports(baseline_dir))
-    candidate_reports = [(label, select_fastest(load_reports(directory))) for label, directory in candidate_dirs]
+    baseline_label, baseline_reports = build_reports[0]
+    candidate_reports = build_reports[1:]
     if compact:
         _render_compact_table(baseline_label, baseline_reports, candidate_reports)
     else:
         _render_detailed(baseline_label, baseline_reports, candidate_reports)
+
+
+def prepare_compare_build_reports(
+    paths: BenchPaths,
+    builds: Sequence[CompareBuild],
+    benchmark_dirs: Sequence[Path],
+    *,
+    validate: bool = False,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> list[tuple[str, dict[str, Report]]]:
+    if not builds:
+        return []
+    compare_root = paths.results_state_dir / "compare"
+    if not validate and not dry_run:
+        shutil.rmtree(compare_root, ignore_errors=True)
+    compare_root.mkdir(parents=True, exist_ok=True)
+    registry = RunnerRegistry()
+    prepared: list[tuple[str, dict[str, Report]]] = []
+    for build in builds:
+        reports = prepare_compare_reports_for_build(
+            paths,
+            build,
+            benchmark_dirs,
+            compare_root=compare_root,
+            registry=registry,
+            validate=validate,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
+        prepared.append((build.label, reports))
+    return prepared
+
+
+def prepare_compare_reports_for_build(
+    paths: BenchPaths,
+    build: CompareBuild,
+    benchmark_dirs: Sequence[Path],
+    *,
+    compare_root: Path | None = None,
+    registry: RunnerRegistry | None = None,
+    validate: bool = False,
+    dry_run: bool = False,
+    verbose: bool = False,
+) -> dict[str, Report]:
+    active_registry = registry or RunnerRegistry()
+    if build.reference_destination:
+        return _prepare_reference_backed_reports(
+            paths,
+            build,
+            benchmark_dirs,
+            compare_root=compare_root,
+            registry=active_registry,
+            validate=validate,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
+    return _prepare_local_reports(
+        paths,
+        build,
+        benchmark_dirs,
+        compare_root=compare_root,
+        registry=active_registry,
+        validate=validate,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
+
+
+def expected_report_identities(
+    paths: BenchPaths,
+    build: CompareBuild,
+    benchmark_dirs: Sequence[Path],
+) -> set[ReportIdentity]:
+    version = build.version
+    if version is None and build.binary is not None:
+        version = (
+            _build_executor(
+                paths,
+                build,
+                RunnerRegistry(),
+                validate=False,
+                dry_run=False,
+                verbose=False,
+            )
+            .build_info()
+            .version
+        )
+    if version is not None and benchmark_dirs:
+        definitions = _definitions_for_paths(benchmark_dirs, version=version)
+        return {_definition_identity(definition) for definition in definitions}
+    if build.binary is None:
+        raise RuntimeError(
+            f"{build.label}: expected a local build path or semantic version to resolve benchmark identities",
+        )
+    executor = _build_executor(
+        paths,
+        build,
+        RunnerRegistry(),
+        validate=False,
+        dry_run=False,
+        verbose=False,
+    )
+    contexts = list(_discover_from_dirs(executor, benchmark_dirs))
+    return {_definition_identity(context.definition) for context in contexts}
+
+
+def _prepare_reference_backed_reports(
+    paths: BenchPaths,
+    build: CompareBuild,
+    benchmark_dirs: Sequence[Path],
+    *,
+    compare_root: Path | None,
+    registry: RunnerRegistry,
+    validate: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> dict[str, Report]:
+    target = build.target or (build.binary and _infer_target(build.binary))
+    if not target:
+        raise RuntimeError(f"{build.label}: reference-backed build requires a target")
+    remote_reports = download_reference_reports(
+        build.reference_destination,
+        hardware_key=current_hardware_key(),
+        target=target,
+    )
+    expected = expected_report_identities(paths, build, benchmark_dirs)
+    missing = missing_report_identities(expected, remote_reports)
+    if not missing:
+        return _reports_by_pipeline(remote_reports.values())
+    if build.binary is None:
+        raise RuntimeError(
+            f"{build.label}: reference is missing benchmark reports and no local build path is available to backfill",
+        )
+    local_reports = _prepare_local_reports(
+        paths,
+        build,
+        benchmark_dirs,
+        compare_root=compare_root,
+        registry=registry,
+        validate=validate,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
+    if validate or dry_run:
+        return local_reports
+    reports_to_publish = {
+        pipeline: report
+        for pipeline, report in local_reports.items()
+        if report_identity(report) in missing
+    }
+    if reports_to_publish:
+        Publisher().publish_reports(reports_to_publish, build.reference_destination)
+    combined = dict(_reports_by_pipeline(remote_reports.values()))
+    combined.update(reports_to_publish)
+    return combined
+
+
+def _prepare_local_reports(
+    paths: BenchPaths,
+    build: CompareBuild,
+    benchmark_dirs: Sequence[Path],
+    *,
+    compare_root: Path | None,
+    registry: RunnerRegistry,
+    validate: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> dict[str, Report]:
+    if build.binary is None:
+        raise RuntimeError(f"{build.label}: local compare build is missing a binary path")
+    executor = _build_executor(
+        paths,
+        build,
+        registry,
+        validate=validate,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
+    contexts = list(_discover_from_dirs(executor, benchmark_dirs))
+    if not contexts:
+        _LOG.error("No benchmarks found to execute")
+        return {}
+    if dry_run:
+        for context in contexts:
+            executor.validate(context)
+        return {}
+    compare_dir = _compare_dir(compare_root, build, executor)
+    if validate:
+        for context in contexts:
+            executor.validate(context)
+        return {}
+    executor.ensure_reports(contexts, compare_dir, force=build.force)
+    return select_fastest(load_reports(compare_dir))
+
+
+def _build_executor(
+    paths: BenchPaths,
+    build: CompareBuild,
+    registry: RunnerRegistry,
+    *,
+    validate: bool,
+    dry_run: bool,
+    verbose: bool,
+) -> BenchmarkExecutor:
+    if build.binary is None:
+        raise RuntimeError(f"{build.label}: local executor requires a binary path")
+    return BenchmarkExecutor(
+        paths,
+        build.binary,
+        registry,
+        tenzir_args=build.tenzir_args,
+        target=build.target,
+        validate=validate,
+        dry_run=dry_run,
+        verbose=verbose,
+    )
+
+
+def _compare_dir(
+    compare_root: Path | None, build: CompareBuild, executor: BenchmarkExecutor
+) -> Path:
+    root = compare_root or executor.paths.results_state_dir / "compare"
+    info = executor.build_info()
+    label = _display_label(info, build.binary or Path(build.label), build.tenzir_args)
+    return root / _cache_key(
+        info, build.binary or Path(build.label), build.tenzir_args, label_override=label
+    )
+
+
+def _reports_by_pipeline(reports: Iterable[Report]) -> dict[str, Report]:
+    return {report.pipeline: report for report in reports}
+
+
+def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list:
+    return load_definitions_from_paths(
+        list(paths),
+        version_supplier=lambda: version,
+    )
+
+
+def _definition_identity(definition) -> ReportIdentity:
+    benchmark_id = getattr(definition, "benchmark_id", None)
+    implementation_id = getattr(definition, "implementation_id", None)
+    path = getattr(definition, "path", None)
+    if not benchmark_id:
+        raise RuntimeError(f"{path}: missing benchmark_id in benchmark definition")
+    if not implementation_id:
+        raise RuntimeError(f"{path}: missing implementation_id in benchmark definition")
+    return benchmark_id, implementation_id
 
 
 def _discover_from_dirs(executor: BenchmarkExecutor, dirs: Sequence[Path]) -> Iterable:
@@ -159,8 +383,7 @@ def _render_compact_table(
     header = f"{'build':<{label_width}} {'seconds':>10} {'Δseconds':>12} {'rss':>10} {'Δrss':>12}"
     separator = "-" * len(header)
     pipelines = sorted(
-        set(baseline_reports)
-        | set().union(*(reports.keys() for _, reports in candidate_reports)),
+        set(baseline_reports) | set().union(*(reports.keys() for _, reports in candidate_reports)),
     )
     for pipeline in pipelines:
         print(pipeline)
@@ -180,8 +403,7 @@ def _render_detailed(
     candidate_reports: Sequence[tuple[str, dict[str, Report]]],
 ) -> None:
     pipelines = sorted(
-        set(baseline_reports)
-        | set().union(*(reports.keys() for _, reports in candidate_reports)),
+        set(baseline_reports) | set().union(*(reports.keys() for _, reports in candidate_reports)),
     )
     for pipeline in pipelines:
         print(f"Pipeline: {pipeline}")
@@ -215,10 +437,7 @@ def _format_row(
     else:
         seconds_delta = ""
         rss_delta = ""
-    return (
-        f"{label:<{label_width}} "
-        f"{seconds:>10} {seconds_delta:>12} {rss:>10} {rss_delta:>12}"
-    )
+    return f"{label:<{label_width}} {seconds:>10} {seconds_delta:>12} {rss:>10} {rss_delta:>12}"
 
 
 def _fmt_seconds(report: Report | None) -> str:
@@ -288,8 +507,18 @@ def _unique_labels(labels: Sequence[str], binaries: Sequence[Path]) -> list[str]
     return unique
 
 
-def _cache_key(info: BuildInfo, path: Path, tenzir_args: Sequence[str]) -> str:
-    safe_label = re.sub(r"[^A-Za-z0-9._-]", "_", _display_label(info, path, tenzir_args))
+def _cache_key(
+    info: BuildInfo,
+    path: Path,
+    tenzir_args: Sequence[str],
+    *,
+    label_override: str | None = None,
+) -> str:
+    safe_label = re.sub(
+        r"[^A-Za-z0-9._-]",
+        "_",
+        label_override or _display_label(info, path, tenzir_args),
+    )
     digest = hashlib.sha256(
         f"{info.path}\0{build_result_id(info, tenzir_args)}\0{info.build_type}".encode("utf-8"),
     ).hexdigest()[:12]

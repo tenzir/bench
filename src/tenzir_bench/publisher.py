@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Mapping
 from pathlib import Path
-from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
+
+from .references import (
+    ReportIdentity,
+    normalize_reports_by_identity,
+    parse_destination,
+    reference_report_key,
+)
+from .reports import Report, load_reports, select_fastest
 
 DEFAULT_BUCKET = "tenzir-bench-reports-dev"
 
@@ -21,15 +28,24 @@ class Publisher:
         self.s3 = boto3.client("s3")
 
     def publish(self, directory: Path, destination: str, force: bool = False) -> None:
-        bucket, prefix = _parse_destination(destination, default_bucket=self.bucket)
-        files = _list_json(directory)
-        for file in files:
-            key = str(Path(prefix) / file)
-            if not force and self._exists(bucket, key):
+        reports = select_fastest(load_reports(directory))
+        self.publish_reports(reports, destination, force=force)
+
+    def publish_reports(
+        self,
+        reports: Mapping[str, Report] | Mapping[ReportIdentity, Report],
+        destination: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        resolved = parse_destination(destination, default_bucket=self.bucket)
+        normalized = normalize_reports_by_identity(reports)
+        for report in normalized.values():
+            key = reference_report_key(report, prefix=resolved.prefix)
+            if not force and self._exists(resolved.bucket, key):
                 continue
-            full_path = directory / file
-            _LOG.info("Uploading %s to s3://%s/%s", full_path, bucket, key)
-            self.s3.upload_file(str(full_path), bucket, key)
+            _LOG.info("Uploading %s to s3://%s/%s", report.path, resolved.bucket, key)
+            self.s3.upload_file(str(report.path), resolved.bucket, key)
 
     def _exists(self, bucket: str, key: str) -> bool:
         try:
@@ -42,23 +58,5 @@ class Publisher:
 
 
 def _parse_destination(destination: str, default_bucket: str) -> tuple[str, Path]:
-    parsed = urlparse(destination)
-    if parsed.scheme == "s3":
-        bucket = parsed.netloc or default_bucket
-        prefix = Path(parsed.path.lstrip("/"))
-    else:
-        bucket = default_bucket
-        prefix = Path(destination)
-    return bucket, prefix
-
-
-def _list_json(directory: Path) -> Iterable[Path]:
-    files: list[Path] = []
-    if not directory.exists():
-        return files
-    for file in directory.rglob("*.json"):
-        try:
-            files.append(file.relative_to(directory))
-        except ValueError:
-            continue
-    return sorted(files)
+    resolved = parse_destination(destination, default_bucket=default_bucket)
+    return resolved.bucket, Path(resolved.prefix)
