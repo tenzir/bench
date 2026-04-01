@@ -64,3 +64,32 @@ class ReportsTest(unittest.TestCase):
         self.assertEqual(report.artifact_id, "v1.2.3")
         self.assertEqual(report.target, "static")
         self.assertEqual(report.hardware_key, "local_x86_64_unknown_8c")
+        self.assertEqual(report.schema_version, 1)
+
+    def test_load_report_reads_explicit_schema_version(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            report_path = root / "report.json"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 2,
+                        "pipeline": "from_kafka_1m/neo",
+                        "benchmark_id": "from_kafka_1m",
+                        "implementation_id": "neo",
+                        "target": "docker",
+                        "hardware": {"key": "local_x86_64_unknown_8c"},
+                        "build": {"version": "v1.2.3"},
+                        "runtime": {
+                            "wall_clock": 1.0,
+                            "max_resident_set_kb": 1024,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            report = load_report(report_path, artifact_id="v1.2.3")
+
+        assert report is not None
+        self.assertEqual(report.schema_version, 2)

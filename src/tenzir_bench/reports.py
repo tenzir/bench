@@ -11,6 +11,8 @@ from typing import cast
 
 _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 _HEX_DIGITS = "0123456789abcdefABCDEF"
+LEGACY_REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 
 
 @dataclass
@@ -25,6 +27,7 @@ class Report:
     rss_kb: int
     build_version: str | None
     artifact_id: str | None
+    schema_version: int = REPORT_SCHEMA_VERSION
 
 
 def load_report(path: Path, *, artifact_id: str | None = None) -> Report | None:
@@ -49,6 +52,7 @@ def parse_report_payload(
         return None
     build = _mapping(payload.get("build")) or {}
     hardware = _mapping(payload.get("hardware")) or {}
+    schema_version = _report_schema_version(payload.get("schema_version"))
     version = build.get("version")
     target = payload.get("target")
     hardware_key = hardware.get("key")
@@ -71,6 +75,7 @@ def parse_report_payload(
         rss_kb=rss_value,
         build_version=version if isinstance(version, str) else None,
         artifact_id=artifact_id,
+        schema_version=schema_version,
     )
 
 
@@ -160,6 +165,13 @@ def _as_int(value: object) -> int | None:
     if isinstance(value, float) and value.is_integer():
         return int(value)
     return None
+
+
+def _report_schema_version(value: object) -> int:
+    parsed = _as_int(value)
+    if parsed is None or parsed < LEGACY_REPORT_SCHEMA_VERSION:
+        return LEGACY_REPORT_SCHEMA_VERSION
+    return parsed
 
 
 def _commitish_matches(actual: str, expected: str) -> bool:

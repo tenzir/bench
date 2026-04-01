@@ -40,6 +40,7 @@ def _write_reference_report(
     path.write_text(
         json.dumps(
             {
+                "schema_version": 2,
                 "pipeline": f"{benchmark_id}/{implementation_id}",
                 "benchmark_id": benchmark_id,
                 "implementation_id": implementation_id,
@@ -177,6 +178,7 @@ class ReferencesTest(unittest.TestCase):
         key = "refs/main/abc123/static/runner-a/from_kafka_route53/neo-string/report.json"
         payload = json.dumps(
             {
+                "schema_version": 2,
                 "pipeline": "from_kafka_route53/neo-string",
                 "benchmark_id": "from_kafka_route53",
                 "implementation_id": "neo-string",

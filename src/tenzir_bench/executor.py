@@ -23,6 +23,7 @@ from . import fixtures as fixture_api
 from .hashing import hash_benchmark, hash_file
 from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
+from .reports import REPORT_SCHEMA_VERSION
 from .runners import Runner, RunnerMetrics, RunnerRegistry
 from .specs import discover_definitions
 
@@ -550,6 +551,7 @@ def _run_once(
         throughput["records_per_second"] = definition.input_events / metrics.wall_clock
     snapshot = environment_snapshot()
     report: dict[str, object] = {
+        "schema_version": REPORT_SCHEMA_VERSION,
         "pipeline": definition.id,
         "benchmark_id": definition.benchmark_id or definition.id,
         "implementation_id": definition.implementation_id,
