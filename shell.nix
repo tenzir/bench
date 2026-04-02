@@ -1,5 +1,6 @@
 { sources ? import ./npins
 , pkgs ? import sources.nixpkgs {}
+, treefmt-nix ? import sources.treefmt-nix
 }:
 
 let
@@ -12,6 +13,17 @@ let
     ps.uv
     ps.uv-build
   ]);
+
+  treefmt = treefmt-nix.mkWrapper pkgs {
+    # Used to find the project root
+    projectRootFile = ".git/config";
+    programs.mdformat.enable = true;
+    programs.nixfmt.enable = true;
+    programs.ruff-check.enable = true;
+    programs.ruff-format.enable = true;
+    programs.yamlfmt.enable = true;
+    programs.yamllint.enable = true;
+  };
 in
 pkgs.mkShell {
   packages = [
@@ -19,6 +31,7 @@ pkgs.mkShell {
     pkgs.uv
     pkgs.ruff
     pkgs.basedpyright
+    treefmt
   ];
 
   shellHook = ''
