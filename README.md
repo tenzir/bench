@@ -245,23 +245,24 @@ To add a new benchmark:
 1. Create `bench/benchmarks/<id>/` in the target repository for real benchmarks,
    or add a runnable sample under `examples/benchmarks/<category>/<id>.tql` in
    this repository.
-2. Run `bench run path/to/<id>.tql` to generate measurement reports.
-3. Validate results with `bench eval`.
+1. Run `bench run path/to/<id>.tql` to generate measurement reports.
+1. Validate results with `bench eval`.
 
 Runners wrap the Tenzir invocation to collect metrics (e.g., `/usr/bin/time`
 for wall clock/CPU/RSS, `perf` for hardware counters, `cachegrind` for cache
 statistics).
 
 ### Building Baselines Across Releases
+
 Maintaining baselines for all released Tenzir versions helps detect regressions
 when new changes land. A typical workflow:
 
 1. Enumerate the desired release binaries (for example, via Nix or container
    images).
-2. For each release, invoke `bench run --tenzir-bin <path>`. Reports are stored
+1. For each release, invoke `bench run --tenzir-bin <path>`. Reports are stored
    automatically in the state directory following the canonical
    `<benchmark-hash>/<input-hash>/<build-id>` layout.
-3. After all releases have been measured, publish the collected results with
+1. After all releases have been measured, publish the collected results with
    `bench publish --runs ~/.local/state/tenzir-bench/results --destination …` or
    archive the directory as needed.
 

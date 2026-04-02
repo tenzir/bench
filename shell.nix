@@ -1,10 +1,11 @@
-{ sources ? import ./npins
-, pkgs ? import sources.nixpkgs {}
-, treefmt-nix ? import sources.treefmt-nix
+{
+  sources ? import ./npins,
+  pkgs ? import sources.nixpkgs { },
+  treefmt-nix ? import sources.treefmt-nix,
 }:
 
 let
-  python = pkgs.python313.withPackages (ps : [
+  python = pkgs.python313.withPackages (ps: [
     ps.boto3
     ps.click
     ps.platformdirs

@@ -68,8 +68,8 @@ like Kafka populated across repeated iterations.
 
 1. Create a `.tql` file under an appropriate subdirectory with the required
    frontmatter and pipeline body.
-2. Run `bench run path/to/benchmark.tql` to generate measurement reports.
-3. Validate results with `bench eval`.
+1. Run `bench run path/to/benchmark.tql` to generate measurement reports.
+1. Validate results with `bench eval`.
 
 Benchmarks should avoid absolute dataset references; rely on the cached dataset
 layout instead so the harness remains portable across machines.
