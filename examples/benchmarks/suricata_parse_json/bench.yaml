@@ -2,11 +2,12 @@ description: Parse Suricata EVE JSON strings manually
 tags:
   dataset: suricata-eve
   operator: parse_json
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 984865
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 runtime:

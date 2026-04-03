@@ -24,15 +24,17 @@ description: Import 100k records from disk
 tags:
   dataset: suricata
   scenario: import
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 984865
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
   - kafka:
+      inputs: [main]
       topic: bench
 runtime:
   warmup_runs: 1
@@ -54,9 +56,11 @@ bench:
 ---
 ```
 
-The harness injects `BENCHMARK_INPUT_PATH` and, when `output.path` is defined,
-`BENCHMARK_OUTPUT_PATH`. Paths are relative to the cached datasets produced by
-`bench prepare`.
+The harness injects one environment variable per named input in the form
+`BENCHMARK_INPUT_<INPUT_NAME>_PATH`. Single-input benchmarks also get the
+compatibility alias `BENCHMARK_INPUT_PATH`. When `output.path` is defined, the
+harness also injects `BENCHMARK_OUTPUT_PATH`. Paths are relative to the cached
+datasets produced by `bench prepare`.
 
 Fixtures follow the same declaration style as `tenzir/test`: use bare names for
 fixtures without options, or a single-key mapping for structured options. The
@@ -67,9 +71,11 @@ from the current working directory down to the benchmark directory.
 
 Fixtures stay active for the full benchmark and may expose `seed`,
 `before_run`, and `after_run` hooks through `tenzir_bench.fixtures.FixtureHandle`.
-The benchmark input now owns repetition and source metadata. Fixture `seed`
-hooks receive the staged benchmark input path and can load it into Kafka,
-nodes, or other external systems in a target-specific way.
+Each named input now owns its own repetition and source metadata. Fixture
+`seed` hooks receive the selected staged inputs as a name-to-path mapping and
+can load them into Kafka, nodes, or other external systems in a target-specific
+way. Fixture specs may optionally declare `inputs: [...]` to restrict which
+named benchmark inputs they receive.
 
 New fixtures should use `current_context().runtime` instead of resolving
 executables from `PATH`. The runtime already knows whether the benchmark is

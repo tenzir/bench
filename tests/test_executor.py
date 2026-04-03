@@ -4,13 +4,14 @@ import unittest
 from contextlib import redirect_stdout
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 import urllib.request
 
 from tenzir_bench import fixtures as fixture_api
 from platformdirs import PlatformDirs
 
-from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
+from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkInput, BenchmarkRuntime
 from tenzir_bench.executor import BenchmarkExecutor, BuildInfo
 from tenzir_bench.paths import BenchPaths
 from tenzir_bench.runners import Runner, RunnerMetrics, RunnerRegistry
@@ -19,6 +20,48 @@ from tenzir_bench.runners import Runner, RunnerMetrics, RunnerRegistry
 def _ensure(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _single_input_definition(
+    *,
+    path: Path,
+    benchmark_id: str,
+    input_path: str,
+    input_source_url: str | None,
+    input_source_num_events: int | None,
+    input_repetitions: int,
+    output_path: str | None = None,
+    env: dict[str, str] | None = None,
+    fixtures: tuple[object, ...] = (),
+    tenzir_args: list[str] | None = None,
+    runner: str = "time",
+    runtime: BenchmarkRuntime | None = None,
+    pipeline_body: str = "discard",
+) -> BenchmarkDefinition:
+    return BenchmarkDefinition(
+        path=path,
+        id=benchmark_id,
+        description=None,
+        tags={},
+        min_version=None,
+        max_version=None,
+        inputs={
+            "main": BenchmarkInput(
+                name="main",
+                path=input_path,
+                source_url=input_source_url,
+                source_num_events=input_source_num_events,
+                repetitions=input_repetitions,
+            )
+        },
+        output_path=output_path,
+        env=env or {},
+        fixtures=cast(tuple[fixture_api.FixtureSpec, ...], fixtures),
+        tenzir_args=tenzir_args or [],
+        runner=runner,
+        runtime=runtime or BenchmarkRuntime(),
+        pipeline_body=pipeline_body,
+    )
 
 
 class FakeRunner(Runner):
@@ -54,24 +97,14 @@ class ExecutorTest(unittest.TestCase):
             source = root / "test" / "tests" / "perf" / "from_kafka_1m" / "route53_sample.ndjson"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-            definition = BenchmarkDefinition(
+            definition = _single_input_definition(
                 path=benchmark_dir / "neo-discard.tql",
-                id="from_kafka_route53/neo-discard",
-                description=None,
-                tags={},
-                min_version=None,
-                max_version=None,
+                benchmark_id="from_kafka_route53/neo-discard",
                 input_path="perf/route53_sample.ndjson",
                 input_source_url="../../../test/tests/perf/from_kafka_1m/route53_sample.ndjson",
                 input_source_num_events=1,
                 input_repetitions=1,
-                output_path=None,
-                env={},
-                fixtures=(),
-                tenzir_args=[],
-                runner="time",
                 runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
-                pipeline_body="discard",
             )
             executor = BenchmarkExecutor(
                 paths,
@@ -98,24 +131,14 @@ class ExecutorTest(unittest.TestCase):
             )
             benchmark_dir = root / "bench" / "benchmarks" / "from_kafka_route53"
             benchmark_dir.mkdir(parents=True, exist_ok=True)
-            definition = BenchmarkDefinition(
+            definition = _single_input_definition(
                 path=benchmark_dir / "neo-discard.tql",
-                id="from_kafka_route53/neo-discard",
-                description=None,
-                tags={},
-                min_version=None,
-                max_version=None,
+                benchmark_id="from_kafka_route53/neo-discard",
                 input_path="cloudwatch/route53.ndjson",
                 input_source_url="https://datasets.tenzir.tools/CloudWatch/route53.ndjson",
                 input_source_num_events=2,
                 input_repetitions=1,
-                output_path=None,
-                env={},
-                fixtures=(),
-                tenzir_args=[],
-                runner="time",
                 runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
-                pipeline_body="discard",
             )
             executor = BenchmarkExecutor(
                 paths,
@@ -151,24 +174,14 @@ class ExecutorTest(unittest.TestCase):
             benchmark_dir.mkdir(parents=True, exist_ok=True)
             local_seed = benchmark_dir / "suricata-dns.seed.ndjson"
             local_seed.write_text('{"event_type":"dns"}\n', encoding="utf-8")
-            definition = BenchmarkDefinition(
+            definition = _single_input_definition(
                 path=benchmark_dir / "neo.tql",
-                id="export_catalog_lookup_concept/neo",
-                description=None,
-                tags={},
-                min_version=None,
-                max_version=None,
+                benchmark_id="export_catalog_lookup_concept/neo",
                 input_path="suricata-dns.seed.ndjson",
                 input_source_url="synthetic",
                 input_source_num_events=1,
                 input_repetitions=1,
-                output_path=None,
-                env={},
-                fixtures=(),
-                tenzir_args=[],
-                runner="time",
                 runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
-                pipeline_body="discard",
             )
             executor = BenchmarkExecutor(
                 paths,
@@ -196,24 +209,14 @@ class ExecutorTest(unittest.TestCase):
             dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
             dataset.parent.mkdir(parents=True, exist_ok=True)
             dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-            definition = BenchmarkDefinition(
+            definition = _single_input_definition(
                 path=Path("examples/benchmarks/operators/example.tql"),
-                id="example-benchmark",
-                description=None,
-                tags={},
-                min_version=None,
-                max_version=None,
+                benchmark_id="example-benchmark",
                 input_path="suricata/eve.json",
                 input_source_url=None,
                 input_source_num_events=1,
                 input_repetitions=1,
-                output_path=None,
-                env={},
-                fixtures=(),
-                tenzir_args=[],
-                runner="time",
                 runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
-                pipeline_body="discard",
             )
             executor = BenchmarkExecutor(
                 paths,
@@ -259,24 +262,16 @@ class ExecutorTest(unittest.TestCase):
             dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
             dataset.parent.mkdir(parents=True, exist_ok=True)
             dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-            definition = BenchmarkDefinition(
+            definition = _single_input_definition(
                 path=Path("examples/benchmarks/operators/example.tql"),
-                id="example-benchmark",
-                description=None,
-                tags={},
-                min_version=None,
-                max_version=None,
+                benchmark_id="example-benchmark",
                 input_path="suricata/eve.json",
                 input_source_url=None,
                 input_source_num_events=1,
                 input_repetitions=1,
-                output_path=None,
                 env={"TENZIR_CONSOLE_FORMAT": "none"},
-                fixtures=(),
                 tenzir_args=["--neo"],
-                runner="time",
                 runtime=BenchmarkRuntime(warmup_runs=1, measurement_runs=3, timeout_seconds=10),
-                pipeline_body="discard",
             )
             runner = FakeRunner()
             executor = BenchmarkExecutor(
@@ -305,7 +300,7 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(
             output.count("# example-benchmark (/tmp/tenzir-link --global-flag --neo)"), 1
         )
-        self.assertIn("env BENCHMARK_INPUT_PATH=", output)
+        self.assertIn("BENCHMARK_INPUT_PATH=", output)
         self.assertIn("examples/benchmarks/operators/example.tql", output)
         self.assertNotIn("/_pipelines/", output)
         self.assertEqual(len(runner.calls), 4)
@@ -348,18 +343,13 @@ class ExecutorTest(unittest.TestCase):
                 dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
                 dataset.parent.mkdir(parents=True, exist_ok=True)
                 dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-                definition = BenchmarkDefinition(
+                definition = _single_input_definition(
                     path=root / "examples" / "benchmarks" / "operators" / "fixture-example.tql",
-                    id="fixture-benchmark",
-                    description=None,
-                    tags={},
-                    min_version=None,
-                    max_version=None,
+                    benchmark_id="fixture-benchmark",
                     input_path="suricata/eve.json",
                     input_source_url=None,
                     input_source_num_events=1,
                     input_repetitions=1,
-                    output_path=None,
                     env={"TENZIR_CONSOLE_FORMAT": "none"},
                     fixtures=(
                         fixture_api.FixtureSpec(
@@ -367,10 +357,7 @@ class ExecutorTest(unittest.TestCase):
                             options={"topic": "bench"},
                         ),
                     ),
-                    tenzir_args=[],
-                    runner="time",
                     runtime=BenchmarkRuntime(warmup_runs=1, measurement_runs=2, timeout_seconds=10),
-                    pipeline_body="discard",
                 )
                 definition.path.parent.mkdir(parents=True, exist_ok=True)
                 definition.path.write_text("discard\n", encoding="utf-8")
@@ -445,24 +432,17 @@ class ExecutorTest(unittest.TestCase):
                 dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
                 dataset.parent.mkdir(parents=True, exist_ok=True)
                 dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
-                definition = BenchmarkDefinition(
+                definition = _single_input_definition(
                     path=root / "examples" / "benchmarks" / "operators" / "dry-run.tql",
-                    id="dry-run",
-                    description=None,
-                    tags={},
-                    min_version=None,
-                    max_version=None,
+                    benchmark_id="dry-run",
                     input_path="suricata/eve.json",
                     input_source_url=None,
                     input_source_num_events=1,
                     input_repetitions=1,
-                    output_path=None,
                     env={"TENZIR_CONSOLE_FORMAT": "none"},
                     fixtures=(fixture_api.FixtureSpec(name="explode-dry-run"),),
                     tenzir_args=["--neo"],
-                    runner="time",
                     runtime=BenchmarkRuntime(warmup_runs=1, measurement_runs=1, timeout_seconds=10),
-                    pipeline_body="discard",
                 )
                 definition.path.parent.mkdir(parents=True, exist_ok=True)
                 definition.path.write_text("discard\n", encoding="utf-8")

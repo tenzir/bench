@@ -37,16 +37,20 @@ class FixtureSpec:
 
     name: str
     options: FixtureOptions = field(default_factory=_empty_fixture_options)
+    inputs: tuple[str, ...] = ()
 
     @override
     def __hash__(self) -> int:
-        return hash((self.name, json.dumps(self.options, sort_keys=True)))
+        return hash((self.name, json.dumps(self.options, sort_keys=True), self.inputs))
 
     @override
     def __str__(self) -> str:
-        if not self.options:
+        if not self.options and not self.inputs:
             return self.name
-        items = ", ".join(f"{key}={value!r}" for key, value in sorted(self.options.items()))
+        rendered_items = [f"{key}={value!r}" for key, value in sorted(self.options.items())]
+        if self.inputs:
+            rendered_items.append(f"inputs={list(self.inputs)!r}")
+        items = ", ".join(rendered_items)
         return f"{self.name}({items})"
 
 
@@ -62,12 +66,20 @@ class FixtureContext:
     """Describe the benchmark context available to fixture factories."""
 
     definition: BenchmarkFixtureDefinition
-    source_path: Path
-    dataset_path: Path
+    source_inputs: Mapping[str, Path]
+    dataset_inputs: Mapping[str, Path]
     output_root: Path
     env: Mapping[str, str]
     runtime: TenzirRuntime
     fixture_options: Mapping[str, object] = field(default_factory=_empty_fixture_options)
+
+    @property
+    def source_path(self) -> Path:
+        return _single_path(self.definition, self.source_inputs, "source inputs")
+
+    @property
+    def dataset_path(self) -> Path:
+        return _single_path(self.definition, self.dataset_inputs, "dataset inputs")
 
     @property
     def tenzir_bin(self) -> Path:
@@ -87,6 +99,18 @@ class FixtureHandle:
 
 class FixtureUnavailable(Exception):
     """Raised when a fixture cannot be provided in the current environment."""
+
+
+def _single_path(
+    definition: BenchmarkFixtureDefinition,
+    values: Mapping[str, Path],
+    label: str,
+) -> Path:
+    if len(values) != 1:
+        raise RuntimeError(
+            f"{definition.path}: benchmark exposes multiple {label}; use named input mappings"
+        )
+    return next(iter(values.values()))
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,7 +476,12 @@ def invoke_active_hook(
     """Invoke a named hook on every currently active fixture that exposes it."""
 
     controllers = _ACTIVE_CONTROLLERS.get()
+    requested_fixture = kwargs.pop("fixture", None)
+    if requested_fixture is not None and not isinstance(requested_fixture, str):
+        raise TypeError("fixture selector must be a string")
     for fixture_name, controller in controllers.items():
+        if requested_fixture is not None and fixture_name != requested_fixture:
+            continue
         _ = controller.invoke_hook(hook_name, fixture=fixture_name, **kwargs)
 
 

@@ -3,16 +3,18 @@ tags:
   dataset: synthetic-suricata-dns
   runtime: node
   scenario: catalog-lookup
-input:
-  path: suricata-dns.seed.ndjson
-  repetitions: 10000
-  source:
-    url: ../../fixtures/node_catalog_lookup/suricata-dns.seed.ndjson
-    num_events: 1
+inputs:
+  seed:
+    path: suricata-dns.seed.ndjson
+    repetitions: 10000
+    source:
+      url: ../../fixtures/node_catalog_lookup/suricata-dns.seed.ndjson
+      num_events: 1
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
   - node_catalog_lookup:
+      inputs: [seed]
       max_partition_size: 1
       schema: suricata
       query_hit_index: 5000

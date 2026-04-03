@@ -74,11 +74,12 @@ class CompareHelpersTest(unittest.TestCase):
                 """---
 benchmark:
   id: example
-  input:
-    path: suricata/eve.json
-    repetitions: 1
-    source:
-      num_events: 1
+  inputs:
+    main:
+      path: suricata/eve.json
+      repetitions: 1
+      source:
+        num_events: 1
 ---
 discard
 """,
@@ -120,11 +121,12 @@ discard
             suite.mkdir(parents=True)
             (suite / "bench.yaml").write_text(
                 """name: json_parse
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 1
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 1
 """,
                 encoding="utf-8",
             )

@@ -11,16 +11,16 @@ import shutil
 import subprocess
 import urllib.parse
 import urllib.request
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, cast
 
-from .definitions import BenchmarkDefinition, BenchmarkError
+from .definitions import BenchmarkDefinition, BenchmarkError, BenchmarkInput
 from . import fixtures as fixture_api
-from .hashing import hash_benchmark, hash_file
+from .hashing import hash_benchmark, hash_inputs
 from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
 from .reports import REPORT_SCHEMA_VERSION
@@ -34,12 +34,20 @@ _LOG = logging.getLogger(__name__)
 @dataclass
 class BenchmarkContext:
     definition: BenchmarkDefinition
-    source_path: Path
-    dataset_path: Path
+    source_inputs: dict[str, Path]
+    dataset_inputs: dict[str, Path]
     benchmark_hash: str
     input_hash: str
     root: Path
     runtime: TenzirRuntime
+
+    @property
+    def source_path(self) -> Path:
+        return self.source_inputs[self.definition.default_input.name]
+
+    @property
+    def dataset_path(self) -> Path:
+        return self.dataset_inputs[self.definition.default_input.name]
 
 
 class BenchmarkExecutor:
@@ -90,22 +98,38 @@ class BenchmarkExecutor:
                 yield context
 
     def create_context(self, definition: BenchmarkDefinition) -> BenchmarkContext | None:
-        source, dataset = self._ensure_dataset(definition)
-        if not dataset.exists():
-            _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
+        source_inputs, dataset_inputs = self._ensure_datasets(definition)
+        missing = [path for path in dataset_inputs.values() if not path.exists()]
+        if missing:
+            _LOG.error("Dataset missing for %s: %s", definition.id, missing[0])
             return None
         return BenchmarkContext(
             definition=definition,
-            source_path=source,
-            dataset_path=dataset,
+            source_inputs=source_inputs,
+            dataset_inputs=dataset_inputs,
             benchmark_hash=hash_benchmark(definition),
-            input_hash=hash_file(dataset),
+            input_hash=hash_inputs(dataset_inputs.values()),
             root=_benchmark_repo_root(definition.path),
             runtime=self.runtime,
         )
 
-    def _ensure_dataset(self, definition: BenchmarkDefinition) -> tuple[Path, Path]:
-        input_path = Path(definition.input_path).expanduser()
+    def _ensure_datasets(
+        self, definition: BenchmarkDefinition
+    ) -> tuple[dict[str, Path], dict[str, Path]]:
+        source_inputs: dict[str, Path] = {}
+        dataset_inputs: dict[str, Path] = {}
+        for input_name, input_definition in definition.inputs.items():
+            source, dataset = self._ensure_dataset(definition, input_definition)
+            source_inputs[input_name] = source
+            dataset_inputs[input_name] = dataset
+        return source_inputs, dataset_inputs
+
+    def _ensure_dataset(
+        self,
+        definition: BenchmarkDefinition,
+        input_definition: BenchmarkInput,
+    ) -> tuple[Path, Path]:
+        input_path = Path(input_definition.path).expanduser()
         if input_path.is_absolute():
             source = input_path.resolve()
         else:
@@ -115,14 +139,19 @@ class BenchmarkExecutor:
                 if local_input.exists():
                     source.parent.mkdir(parents=True, exist_ok=True)
                     _ = shutil.copy2(local_input, source)
-                elif definition.input_source_url is not None:
+                elif input_definition.source_url is not None:
                     source.parent.mkdir(parents=True, exist_ok=True)
-                    source = self._materialize_input_source(definition, source)
-        dataset = self._stage_dataset_repetitions(definition, source)
+                    source = self._materialize_input_source(definition, input_definition, source)
+        dataset = self._stage_dataset_repetitions(input_definition, source)
         return source, dataset
 
-    def _materialize_input_source(self, definition: BenchmarkDefinition, dataset: Path) -> Path:
-        source_value = definition.input_source_url
+    def _materialize_input_source(
+        self,
+        definition: BenchmarkDefinition,
+        input_definition: BenchmarkInput,
+        dataset: Path,
+    ) -> Path:
+        source_value = input_definition.source_url
         if source_value is None:
             return dataset
         source_value = source_value.strip()
@@ -148,33 +177,33 @@ class BenchmarkExecutor:
         _ = shutil.copy2(source, dataset)
         return dataset
 
-    def _stage_dataset_repetitions(self, definition: BenchmarkDefinition, source: Path) -> Path:
-        if definition.input_repetitions == 1:
+    def _stage_dataset_repetitions(self, input_definition: BenchmarkInput, source: Path) -> Path:
+        if input_definition.repetitions == 1:
             return source
-        repeated = self._repeated_dataset_path(definition, source)
+        repeated = self._repeated_dataset_path(input_definition, source)
         if repeated.exists():
             return repeated
         repeated.parent.mkdir(parents=True, exist_ok=True)
         with source.open("rb") as src, repeated.open("wb") as dst:
-            for _ in range(definition.input_repetitions):
+            for _ in range(input_definition.repetitions):
                 _ = src.seek(0)
                 shutil.copyfileobj(src, dst)
         return repeated
 
-    def _repeated_dataset_path(self, definition: BenchmarkDefinition, source: Path) -> Path:
-        input_path = Path(definition.input_path)
+    def _repeated_dataset_path(self, input_definition: BenchmarkInput, source: Path) -> Path:
+        input_path = Path(input_definition.path)
         if not input_path.is_absolute():
             return (
                 self.paths.datasets_cache_dir
                 / "_repeated"
-                / str(definition.input_repetitions)
+                / str(input_definition.repetitions)
                 / input_path
             ).resolve()
         digest = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:12]
         return (
             self.paths.datasets_cache_dir
             / "_repeated"
-            / str(definition.input_repetitions)
+            / str(input_definition.repetitions)
             / digest
             / source.name
         ).resolve()
@@ -261,7 +290,7 @@ class BenchmarkExecutor:
                     target=self.target,
                     timeout=context.definition.runtime.timeout_seconds,
                     output_root=output_root,
-                    input_path=context.dataset_path,
+                    input_paths=context.dataset_inputs,
                     benchmark_hash=context.benchmark_hash,
                     input_hash=context.input_hash,
                     build=build,
@@ -287,7 +316,7 @@ class BenchmarkExecutor:
                     target=self.target,
                     timeout=context.definition.runtime.timeout_seconds,
                     output_root=output_root,
-                    input_path=context.dataset_path,
+                    input_paths=context.dataset_inputs,
                     benchmark_hash=context.benchmark_hash,
                     input_hash=context.input_hash,
                     build=build,
@@ -362,7 +391,7 @@ class BenchmarkExecutor:
             )
         env = _benchmark_env(
             context.definition,
-            context.dataset_path,
+            context.dataset_inputs,
             self._dry_run_result_dir(context),
         )
         command = _tenzir_command(
@@ -496,12 +525,12 @@ def _benchmark_runtime_env(
     output_root: Path,
 ) -> Iterator[dict[str, str]]:
     fixture_api.load_fixture_modules(context.definition.path, root=context.root)
-    env = _benchmark_env(context.definition, context.dataset_path, output_root)
+    env = _benchmark_env(context.definition, context.dataset_inputs, output_root)
     token = fixture_api.push_context(
         fixture_api.FixtureContext(
             definition=context.definition,
-            source_path=context.source_path,
-            dataset_path=context.dataset_path,
+            source_inputs=context.source_inputs,
+            dataset_inputs=context.dataset_inputs,
             output_root=output_root,
             env=dict(env),
             runtime=context.runtime,
@@ -512,14 +541,20 @@ def _benchmark_runtime_env(
             merged = dict(env)
             merged.update(fixture_env)
             _refresh_forwarded_env(merged)
-            fixture_api.invoke_active_hook(
-                "seed",
-                definition=context.definition,
-                env=merged,
-                source_path=context.source_path,
-                input_path=context.dataset_path,
-                output_root=output_root,
-            )
+            for fixture in context.definition.fixtures:
+                source_inputs, dataset_inputs = _select_fixture_inputs(context, fixture)
+                hook_kwargs: dict[str, object] = {
+                    "definition": context.definition,
+                    "env": merged,
+                    "source_inputs": source_inputs,
+                    "input_paths": dataset_inputs,
+                    "output_root": output_root,
+                }
+                if len(dataset_inputs) == 1:
+                    only_input_name = next(iter(dataset_inputs))
+                    hook_kwargs["source_path"] = source_inputs[only_input_name]
+                    hook_kwargs["input_path"] = dataset_inputs[only_input_name]
+                fixture_api.invoke_active_hook("seed", fixture=fixture.name, **hook_kwargs)
             yield merged
     finally:
         fixture_api.pop_context(token)
@@ -534,7 +569,7 @@ def _run_once(
     target: str,
     timeout: int | None,
     output_root: Path,
-    input_path: Path,
+    input_paths: Mapping[str, Path],
     benchmark_hash: str,
     input_hash: str,
     build: BuildInfo,
@@ -549,16 +584,18 @@ def _run_once(
             output_file.unlink()
     run_env = {**os.environ, **env}
     phase = "measurement" if store_result else "warmup"
-    fixture_api.invoke_active_hook(
-        "before_run",
-        definition=definition,
-        phase=phase,
-        run_index=run_index,
-        env=run_env,
-        command=tuple(command),
-        input_path=input_path,
-        output_path=output_file,
-    )
+    before_kwargs: dict[str, object] = {
+        "definition": definition,
+        "phase": phase,
+        "run_index": run_index,
+        "env": run_env,
+        "command": tuple(command),
+        "input_paths": input_paths,
+        "output_path": output_file,
+    }
+    if len(input_paths) == 1:
+        before_kwargs["input_path"] = next(iter(input_paths.values()))
+    fixture_api.invoke_active_hook("before_run", **before_kwargs)
     metrics: RunnerMetrics | None = None
     try:
         metrics = runner.run(command, env=run_env, timeout=timeout)
@@ -566,22 +603,24 @@ def _run_once(
         _LOG.error("Runner failed for %s: %s", definition.id, exc)
         return None
     finally:
-        fixture_api.invoke_active_hook(
-            "after_run",
-            definition=definition,
-            phase=phase,
-            run_index=run_index,
-            env=run_env,
-            command=tuple(command),
-            input_path=input_path,
-            output_path=output_file,
-            success=metrics is not None,
-        )
+        after_kwargs: dict[str, object] = {
+            "definition": definition,
+            "phase": phase,
+            "run_index": run_index,
+            "env": run_env,
+            "command": tuple(command),
+            "input_paths": input_paths,
+            "output_path": output_file,
+            "success": metrics is not None,
+        }
+        if len(input_paths) == 1:
+            after_kwargs["input_path"] = next(iter(input_paths.values()))
+        fixture_api.invoke_active_hook("after_run", **after_kwargs)
     assert metrics is not None
     if not store_result:
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
-    input_bytes = input_path.stat().st_size
+    input_bytes = sum(path.stat().st_size for path in input_paths.values())
     timestamp = datetime.now(UTC)
     runtime: dict[str, float | int] = {
         "wall_clock": metrics.wall_clock,
@@ -627,12 +666,25 @@ def _run_once(
         "command": command,
         "tags": definition.tags,
         "fixtures": [
-            {"name": fixture.name, "options": fixture.options} for fixture in definition.fixtures
+            {
+                "name": fixture.name,
+                "options": fixture.options,
+                "inputs": list(fixture.inputs),
+            }
+            for fixture in definition.fixtures
         ],
         "input": {
-            "path": str(input_path),
-            "bytes": input_path.stat().st_size,
+            "bytes": input_bytes,
             "records": definition.input_events,
+            **({"path": str(next(iter(input_paths.values())))} if len(input_paths) == 1 else {}),
+        },
+        "inputs": {
+            input_name: {
+                "path": str(input_paths[input_name]),
+                "bytes": input_paths[input_name].stat().st_size,
+                "records": input_definition.total_events,
+            }
+            for input_name, input_definition in definition.inputs.items()
         },
         "runner": definition.runner,
         "runtime": runtime,
@@ -700,10 +752,15 @@ def _tenzir_command(
 
 def _benchmark_env(
     definition: BenchmarkDefinition,
-    dataset: Path,
+    datasets: Mapping[str, Path],
     output_root: Path,
 ) -> dict[str, str]:
-    env = {"BENCHMARK_INPUT_PATH": str(dataset)}
+    env = {
+        _benchmark_input_env_name(input_name): str(dataset_path)
+        for input_name, dataset_path in datasets.items()
+    }
+    if len(datasets) == 1:
+        env["BENCHMARK_INPUT_PATH"] = str(next(iter(datasets.values())))
     env.update(definition.env)
     if definition.output_path:
         output_file = output_root / "outputs" / definition.output_path
@@ -716,3 +773,25 @@ def _benchmark_env(
 def _refresh_forwarded_env(env: dict[str, str]) -> None:
     forward_keys = sorted(key for key in env if key != "TENZIR_BENCH_FORWARD_ENV")
     env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
+
+
+def _benchmark_input_env_name(input_name: str) -> str:
+    sanitized = "".join(char.upper() if char.isalnum() else "_" for char in input_name).strip("_")
+    return f"BENCHMARK_INPUT_{sanitized}_PATH"
+
+
+def _select_fixture_inputs(
+    context: BenchmarkContext,
+    fixture: fixture_api.FixtureSpec,
+) -> tuple[dict[str, Path], dict[str, Path]]:
+    selected_names = fixture.inputs or context.definition.input_names
+    source_inputs: dict[str, Path] = {}
+    dataset_inputs: dict[str, Path] = {}
+    for input_name in selected_names:
+        if input_name not in context.definition.inputs:
+            raise RuntimeError(
+                f"{context.definition.path}: fixture '{fixture.name}' references unknown input '{input_name}'"
+            )
+        source_inputs[input_name] = context.source_inputs[input_name]
+        dataset_inputs[input_name] = context.dataset_inputs[input_name]
+    return source_inputs, dataset_inputs

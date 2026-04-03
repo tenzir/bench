@@ -2,15 +2,17 @@ description: Read Suricata EVE records from Kafka via from_kafka
 tags:
   dataset: suricata-eve
   operator: from_kafka
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 984865
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
   - kafka:
+      inputs: [main]
       topic: suricata-eve-bench
 runtime:
   warmup_runs: 1

@@ -13,11 +13,12 @@ class SpecsTest(unittest.TestCase):
             suite.mkdir(parents=True)
             (suite / "bench.yaml").write_text(
                 """description: Parse Suricata events
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 1
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -51,12 +52,13 @@ discard
             (suite / "bench.yaml").write_text(
                 """name: from_kafka_1m
 description: Kafka ingest
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    url: ../../fixtures/eve.json
-    num_events: 1
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      url: ../../fixtures/eve.json
+      num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -102,11 +104,12 @@ discard
             suite.mkdir(parents=True)
             (suite / "bench.yaml").write_text(
                 """name: json_parse
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 1
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -151,11 +154,12 @@ discard
                 suite.mkdir(parents=True)
                 (suite / "bench.yaml").write_text(
                     """name: example
-input:
-  path: suricata/eve.json
-  repetitions: 1
-  source:
-    num_events: 1
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 1
 """,
                     encoding="utf-8",
                 )

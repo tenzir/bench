@@ -24,6 +24,21 @@ class BenchmarkRuntime:
 
 
 @dataclass(frozen=True)
+class BenchmarkInput:
+    name: str
+    path: str
+    source_url: str | None
+    source_num_events: int | None
+    repetitions: int = 1
+
+    @property
+    def total_events(self) -> int | None:
+        if self.source_num_events is None:
+            return None
+        return self.source_num_events * self.repetitions
+
+
+@dataclass(frozen=True)
 class BenchmarkDefinition:
     path: pathlib.Path
     id: str
@@ -31,10 +46,7 @@ class BenchmarkDefinition:
     tags: dict[str, str]
     min_version: str | None
     max_version: str | None
-    input_path: str
-    input_source_url: str | None
-    input_source_num_events: int | None
-    input_repetitions: int
+    inputs: dict[str, BenchmarkInput]
     output_path: str | None
     env: dict[str, str]
     fixtures: tuple[FixtureSpec, ...]
@@ -46,18 +58,43 @@ class BenchmarkDefinition:
     implementation_id: str | None = None
 
     @property
-    def input_source(self) -> str | None:
-        """Compatibility alias for the benchmark input source URL/path."""
-
-        return self.input_source_url
+    def input_names(self) -> tuple[str, ...]:
+        return tuple(self.inputs.keys())
 
     @property
     def input_events(self) -> int | None:
-        """Total input event count after applying repetitions."""
-
-        if self.input_source_num_events is None:
+        totals = [input_definition.total_events for input_definition in self.inputs.values()]
+        if any(total is None for total in totals):
             return None
-        return self.input_source_num_events * self.input_repetitions
+        return sum(cast(list[int], totals))
+
+    @property
+    def input_path(self) -> str:
+        return self.default_input.path
+
+    @property
+    def input_source(self) -> str | None:
+        return self.default_input.source_url
+
+    @property
+    def input_source_url(self) -> str | None:
+        return self.default_input.source_url
+
+    @property
+    def input_source_num_events(self) -> int | None:
+        return self.default_input.source_num_events
+
+    @property
+    def input_repetitions(self) -> int:
+        return self.default_input.repetitions
+
+    @property
+    def default_input(self) -> BenchmarkInput:
+        if len(self.inputs) != 1:
+            raise BenchmarkError(
+                f"{self.path}: benchmark exposes multiple inputs; use named inputs instead"
+            )
+        return next(iter(self.inputs.values()))
 
 
 def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
@@ -76,16 +113,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
     max_version = benchmark.get("max_version")
     if max_version is not None and not isinstance(max_version, str):
         raise BenchmarkError(f"{path}: benchmark.max_version must be a string")
-    input_section = _require_mapping(benchmark.get("input"), path, "benchmark.input")
-    input_path = _require_str(input_section, "path", path)
-    input_source_url, input_source_num_events = parse_input_source(
-        input_section,
-        path,
-        prefix="benchmark.input",
-    )
-    input_repetitions = input_section.get("repetitions", 1)
-    if not isinstance(input_repetitions, int) or input_repetitions <= 0:
-        raise BenchmarkError(f"{path}: benchmark.input.repetitions must be a positive integer")
+    inputs = parse_inputs(benchmark, path, prefix="benchmark")
     output_section = benchmark.get("output")
     output_path: str | None = None
     if output_section is not None:
@@ -137,10 +165,7 @@ def parse_benchmark_file(path: pathlib.Path) -> BenchmarkDefinition:
         tags=dict(tags),
         min_version=min_version,
         max_version=max_version,
-        input_path=input_path,
-        input_source_url=input_source_url,
-        input_source_num_events=input_source_num_events,
-        input_repetitions=input_repetitions,
+        inputs=inputs,
         output_path=output_path,
         env=dict(env),
         fixtures=fixture_specs,
@@ -268,6 +293,45 @@ def parse_input_source(
     return source_url, num_events
 
 
+def parse_inputs(
+    benchmark: dict[str, object],
+    path: pathlib.Path,
+    *,
+    prefix: str,
+) -> dict[str, BenchmarkInput]:
+    if "input" in benchmark:
+        raise BenchmarkError(
+            f"{path}: {prefix}.input is no longer supported; use {prefix}.inputs.<name>"
+        )
+    raw_inputs = _require_mapping(benchmark.get("inputs"), path, f"{prefix}.inputs")
+    if not raw_inputs:
+        raise BenchmarkError(f"{path}: {prefix}.inputs must not be empty")
+    inputs: dict[str, BenchmarkInput] = {}
+    for input_name, input_value in raw_inputs.items():
+        if not input_name.strip():
+            raise BenchmarkError(f"{path}: {prefix}.inputs keys must be non-empty strings")
+        input_mapping = _require_mapping(input_value, path, f"{prefix}.inputs.{input_name}")
+        input_path = _require_str(input_mapping, "path", path)
+        source_url, source_num_events = parse_input_source(
+            input_mapping,
+            path,
+            prefix=f"{prefix}.inputs.{input_name}",
+        )
+        repetitions = input_mapping.get("repetitions", 1)
+        if not isinstance(repetitions, int) or repetitions <= 0:
+            raise BenchmarkError(
+                f"{path}: {prefix}.inputs.{input_name}.repetitions must be a positive integer"
+            )
+        inputs[input_name] = BenchmarkInput(
+            name=input_name,
+            path=input_path,
+            source_url=source_url,
+            source_num_events=source_num_events,
+            repetitions=repetitions,
+        )
+    return inputs
+
+
 def parse_fixture_specs(
     benchmark: dict[str, object],
     path: pathlib.Path,
@@ -319,10 +383,31 @@ def _normalize_fixture_specs(
         name, options = next(iter(entry_mapping.items()))
         if not name.strip():
             raise BenchmarkError(f"{path}: fixture names must be non-empty strings")
+        normalized_options = _require_mapping(options, path, f"fixture options for '{name}'")
+        selected_inputs = normalized_options.pop("inputs", ())
+        fixture_inputs = _require_str_tuple(
+            selected_inputs,
+            path,
+            f"fixture options for '{name}'.inputs",
+        )
         specs.append(
             FixtureSpec(
                 name=name.strip(),
-                options=_require_mapping(options, path, f"fixture options for '{name}'"),
+                options=normalized_options,
+                inputs=fixture_inputs,
             )
         )
     return tuple(specs)
+
+
+def _require_str_tuple(value: object, path: pathlib.Path, label: str) -> tuple[str, ...]:
+    if value in ((), None):
+        return ()
+    if not isinstance(value, list):
+        raise BenchmarkError(f"{path}: {label} must be a list of strings")
+    result: list[str] = []
+    for item in cast(list[object], value):
+        if not isinstance(item, str) or not item.strip():
+            raise BenchmarkError(f"{path}: {label} must be a list of non-empty strings")
+        result.append(item)
+    return tuple(result)

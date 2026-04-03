@@ -6,7 +6,7 @@ from typing import final
 from unittest.mock import patch
 
 from tenzir_bench import fixtures as fixture_api
-from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
+from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkInput, BenchmarkRuntime
 from tenzir_bench.runtime import runtime_from_path
 
 
@@ -36,16 +36,22 @@ class KafkaFixtureTest(unittest.TestCase):
                 tags={},
                 min_version=None,
                 max_version=None,
-                input_path="suricata/eve.json",
-                input_source_url=None,
-                input_source_num_events=2,
-                input_repetitions=5,
+                inputs={
+                    "main": BenchmarkInput(
+                        name="main",
+                        path="suricata/eve.json",
+                        source_url=None,
+                        source_num_events=2,
+                        repetitions=5,
+                    )
+                },
                 output_path=None,
                 env={},
                 fixtures=(
                     fixture_api.FixtureSpec(
                         name="kafka",
                         options={"topic": "bench"},
+                        inputs=("main",),
                     ),
                 ),
                 tenzir_args=[],
@@ -115,8 +121,8 @@ class KafkaFixtureTest(unittest.TestCase):
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
                     definition=definition,
-                    source_path=source_dataset,
-                    dataset_path=repeated_dataset,
+                    source_inputs={"main": source_dataset},
+                    dataset_inputs={"main": repeated_dataset},
                     output_root=root / "out",
                     env={},
                     runtime=runtime_from_path(root / "bin" / "tenzir"),
@@ -135,8 +141,8 @@ class KafkaFixtureTest(unittest.TestCase):
                         "seed",
                         definition=definition,
                         env=dict(env),
-                        source_path=source_dataset,
-                        input_path=repeated_dataset,
+                        source_inputs={"main": source_dataset},
+                        input_paths={"main": repeated_dataset},
                         output_root=root / "out",
                     )
                     self.assertEqual(env["BENCHMARK_KAFKA_BOOTSTRAP_SERVERS"], "127.0.0.1:9092")
@@ -145,6 +151,7 @@ class KafkaFixtureTest(unittest.TestCase):
                     hook_env = dict(env)
                     fixture_api.invoke_active_hook(
                         "before_run",
+                        input_paths={"main": repeated_dataset},
                         input_path=repeated_dataset,
                         output_path=None,
                         phase="measurement",
@@ -201,16 +208,22 @@ class KafkaFixtureTest(unittest.TestCase):
                 tags={},
                 min_version=None,
                 max_version=None,
-                input_path="suricata/eve.json",
-                input_source_url=None,
-                input_source_num_events=2,
-                input_repetitions=1,
+                inputs={
+                    "main": BenchmarkInput(
+                        name="main",
+                        path="suricata/eve.json",
+                        source_url=None,
+                        source_num_events=2,
+                        repetitions=1,
+                    )
+                },
                 output_path=None,
                 env={},
                 fixtures=(
                     fixture_api.FixtureSpec(
                         name="kafka",
                         options={"topic": "bench"},
+                        inputs=("main",),
                     ),
                 ),
                 tenzir_args=[],
@@ -221,8 +234,8 @@ class KafkaFixtureTest(unittest.TestCase):
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
                     definition=definition,
-                    source_path=root / "input.json",
-                    dataset_path=root / "input.json",
+                    source_inputs={"main": root / "input.json"},
+                    dataset_inputs={"main": root / "input.json"},
                     output_root=root / "out",
                     env={},
                     runtime=runtime_from_path(root / "bin" / "tenzir"),

@@ -13,7 +13,7 @@ from tenzir_bench.definitions import (
     BenchmarkDefinition,
     BenchmarkError,
     BenchmarkRuntime,
-    parse_input_source,
+    parse_inputs,
     parse_fixture_specs,
     split_frontmatter,
 )
@@ -251,16 +251,7 @@ def _parse_spec_implementation(
         _parse_tags(metadata.get("tags") or {}, path, "bench.yaml tags"),
         _parse_tags(implementation.get("tags") or {}, path, "bench.tags"),
     )
-    input_section = _require_mapping(metadata.get("input"), path, "input")
-    input_path = _require_str(input_section, "path", path, prefix="input")
-    input_source_url, input_source_num_events = parse_input_source(
-        input_section,
-        path,
-        prefix="input",
-    )
-    input_repetitions = input_section.get("repetitions", 1)
-    if not isinstance(input_repetitions, int) or input_repetitions <= 0:
-        raise BenchmarkError(f"{path}: input.repetitions must be a positive integer")
+    inputs = parse_inputs(metadata, path, prefix="bench.yaml")
     output_section = metadata.get("output")
     output_path: str | None = None
     if output_section is not None:
@@ -284,10 +275,7 @@ def _parse_spec_implementation(
         tags=tags,
         min_version=min_version,
         max_version=max_version,
-        input_path=input_path,
-        input_source_url=input_source_url,
-        input_source_num_events=input_source_num_events,
-        input_repetitions=input_repetitions,
+        inputs=inputs,
         output_path=output_path,
         env=env,
         fixtures=fixtures,

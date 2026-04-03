@@ -139,7 +139,23 @@ def shared_bench_fixture():
         class DefinitionStub:
             def __init__(self, path: Path, *, input_repetitions: int) -> None:
                 self.path: Path = path
-                self.input_repetitions: int = input_repetitions
+                self.input_names: tuple[str, ...] = ("seed",)
+                self.inputs: dict[str, object] = {
+                    "seed": type(
+                        "InputStub",
+                        (),
+                        {
+                            "name": "seed",
+                            "path": "suricata-dns.seed.ndjson",
+                            "repetitions": input_repetitions,
+                        },
+                    )()
+                }
+                self.fixtures = (
+                    fixture_api.FixtureSpec(
+                        name="node_catalog_lookup", options={"query_hit_index": 3}, inputs=("seed",)
+                    ),
+                )
 
         fixture_api.load_fixture_modules(
             Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql"),
@@ -162,8 +178,8 @@ def shared_bench_fixture():
                     Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql"),
                     input_repetitions=8,
                 ),
-                source_path=source_path,
-                dataset_path=dataset_path,
+                source_inputs={"seed": source_path},
+                dataset_inputs={"seed": dataset_path},
                 output_root=root / "output",
                 env={},
                 runtime=cast(TenzirRuntime, cast(object, runtime)),
@@ -184,8 +200,8 @@ def shared_bench_fixture():
                         "seed",
                         definition=context.definition,
                         env=dict(env),
-                        source_path=source_path,
-                        input_path=dataset_path,
+                        source_inputs={"seed": source_path},
+                        input_paths={"seed": dataset_path},
                         output_root=root / "output",
                     )
                     self.assertEqual(env["TENZIR_ENDPOINT"], "127.0.0.1:5151")

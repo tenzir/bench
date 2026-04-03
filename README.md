@@ -151,11 +151,13 @@ container and streams the benchmark environment variables across.
 ### Authoring Pipelines
 
 Each benchmark is a `.tql` file with YAML frontmatter followed by the pipeline
-body. The harness injects `BENCHMARK_INPUT_PATH` and (when applicable)
-`BENCHMARK_OUTPUT_PATH` so that pipelines can reference staged datasets without
-hard-coded paths. Benchmarks can also request Python fixtures that provision
-external systems or seed data for integration-style benchmarks such as
-`from_kafka`.
+body. The harness injects one environment variable per named input in the form
+`BENCHMARK_INPUT_<INPUT_NAME>_PATH`, plus the single-input compatibility alias
+`BENCHMARK_INPUT_PATH` when a benchmark defines only one input. It also injects
+`BENCHMARK_OUTPUT_PATH` when `output.path` is configured. Pipelines can
+reference staged datasets without hard-coded paths, and benchmarks can request
+Python fixtures that provision external systems or seed data for
+integration-style benchmarks such as `from_kafka`.
 
 Frontmatter schema:
 
@@ -169,18 +171,20 @@ benchmark:
     operator: read_json
   min_version: "5.17.0"              # Minimum Tenzir version allowed (optional)
   max_version: "6.0.0"               # Maximum Tenzir version allowed (optional)
-  input:                             # Input dataset configuration (required)
-    path: suricata/eve.json          # Relative to the managed dataset cache unless absolute
-    repetitions: 1                   # Optional repetition count applied to the staged benchmark input
-    source:                          # Optional source metadata for staging and throughput stats
-      url: ../../test/tests/...      # Optional repo-local path or HTTP(S) URL copied into the cache automatically
-      num_events: 984865             # Optional record count for one source copy
+  inputs:                            # Named input dataset configurations (required)
+    main:
+      path: suricata/eve.json        # Relative to the managed dataset cache unless absolute
+      repetitions: 1                 # Optional repetition count applied before fixture seeding
+      source:                        # Optional source metadata for staging and throughput stats
+        url: ../../test/tests/...    # Optional repo-local path or HTTP(S) URL copied into the cache automatically
+        num_events: 984865           # Optional record count for one source copy
   output:                            # Optional output measurement settings
     path: tmp/eve-out.json           # Relative to working directory
   env:                               # Extra environment variables for the run (optional)
     TENZIR_CONSOLE_FORMAT: none
   fixtures:                          # Optional fixture specs (same shapes as tenzir/test)
     - kafka:
+        inputs: [main]
         topic: bench
         partitions: 1
     - sink
@@ -220,8 +224,8 @@ class KafkaOptions:
 def kafka_fixture():
     options = current_options("kafka")
 
-    def seed(*, input_path, **_kwargs):
-        # Load the staged benchmark input into Kafka once per benchmark run.
+    def seed(*, input_paths, **_kwargs):
+        # Load one or more staged benchmark inputs into Kafka once per benchmark run.
         ...
 
     return FixtureHandle(
@@ -232,11 +236,13 @@ def kafka_fixture():
 
 Fixtures stay active for the full benchmark execution and may expose
 `seed`, `before_run`, and `after_run` hooks. The `seed` hook is the place to
-load the benchmark input into Kafka, nodes, or other external systems. The
-benchmark-level `input.repetitions` setting controls how many times the staged
-input is repeated before any fixture seeding happens. Fixture-provided
-environment variables are merged into the benchmark environment and forwarded
-automatically when the benchmark runs inside a Docker wrapper via `bench compare`.
+load staged named inputs into Kafka, nodes, or other external systems. A
+fixture may optionally declare `inputs: [...]` to receive only a subset of the
+named benchmark inputs. Each input’s `repetitions` setting controls how many
+times that staged input is repeated before any fixture seeding happens.
+Fixture-provided environment variables are merged into the benchmark
+environment and forwarded automatically when the benchmark runs inside a Docker
+wrapper via `bench compare`.
 
 This repository now ships three runnable examples under `examples/`:
 

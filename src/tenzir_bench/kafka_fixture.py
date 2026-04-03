@@ -187,7 +187,7 @@ def _publish_dataset(
     cwd: Path,
     service: str,
     topic: str,
-    input_path: Path,
+    input_paths: list[Path],
 ) -> None:
     process = subprocess.Popen(
         [
@@ -210,8 +210,9 @@ def _publish_dataset(
     try:
         if process.stdin is None:
             raise RuntimeError("failed to open stdin for kafka dataset publisher")
-        with input_path.open("rb") as handle:
-            _ = shutil.copyfileobj(handle, process.stdin)
+        for input_path in input_paths:
+            with input_path.open("rb") as handle:
+                _ = shutil.copyfileobj(handle, process.stdin)
         process.stdin.close()
         stdout, stderr = process.communicate()
     except Exception:
@@ -277,7 +278,7 @@ def kafka() -> FixtureHandle:
     )
     group_prefix = f"{_group_id(context.definition.path, options.topic)}-{uuid.uuid4().hex[:8]}"
 
-    def _seed(*, input_path: Path, **_kwargs: object) -> None:
+    def _seed(*, input_paths: dict[str, Path], **_kwargs: object) -> None:
         _ = _reset_topic(
             base_args,
             cwd=cwd,
@@ -291,7 +292,7 @@ def kafka() -> FixtureHandle:
             cwd=cwd,
             service=options.service,
             topic=options.topic,
-            input_path=input_path,
+            input_paths=list(input_paths.values()),
         )
 
     def _before_run(*, phase: str, run_index: int, env: dict[str, str], **_kwargs: object) -> None:

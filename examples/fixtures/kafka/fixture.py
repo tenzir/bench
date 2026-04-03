@@ -183,7 +183,7 @@ def _publish_dataset(
     cwd: Path,
     service: str,
     topic: str,
-    input_path: Path,
+    input_paths: list[Path],
 ) -> None:
     process = subprocess.Popen(
         [
@@ -206,8 +206,9 @@ def _publish_dataset(
     try:
         if process.stdin is None:
             raise RuntimeError("failed to open stdin for kafka dataset publisher")
-        with input_path.open("rb") as handle:
-            _ = shutil.copyfileobj(handle, process.stdin)
+        for input_path in input_paths:
+            with input_path.open("rb") as handle:
+                _ = shutil.copyfileobj(handle, process.stdin)
         process.stdin.close()
         stderr = process.stderr.read() if process.stderr is not None else b""
         return_code = process.wait()
@@ -271,7 +272,7 @@ def kafka() -> FixtureHandle:
 
     def _seed(
         *,
-        input_path: Path,
+        input_paths: dict[str, Path],
         **_kwargs: object,
     ) -> None:
         _reset_topic(
@@ -287,7 +288,7 @@ def kafka() -> FixtureHandle:
             cwd=cwd,
             service=service,
             topic=options.topic,
-            input_path=input_path,
+            input_paths=list(input_paths.values()),
         )
 
     def _before_run(*, phase: str, run_index: int, env: dict[str, str], **_kwargs: object) -> None:

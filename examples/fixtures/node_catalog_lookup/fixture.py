@@ -19,6 +19,30 @@ _LOG = logging.getLogger(__name__)
 _ENDPOINT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+:\d+$")
 
 
+def _selected_input_name() -> str:
+    context = current_context()
+    if context is None:
+        raise RuntimeError("node_catalog_lookup fixture requires an active benchmark context")
+    fixture_spec = next(
+        (
+            fixture
+            for fixture in context.definition.fixtures
+            if fixture.name == "node_catalog_lookup"
+        ),
+        None,
+    )
+    selected_names = (
+        fixture_spec.inputs
+        if fixture_spec and fixture_spec.inputs
+        else context.definition.input_names
+    )
+    if len(selected_names) != 1:
+        raise ValueError(
+            "node_catalog_lookup expects exactly one selected input; set fixture.inputs accordingly"
+        )
+    return selected_names[0]
+
+
 @dataclass(frozen=True)
 class NodeCatalogLookupOptions:
     """Configuration for the ``node_catalog_lookup`` example fixture."""
@@ -212,7 +236,9 @@ def node_catalog_lookup() -> FixtureHandle:
     state_dir = benchmark_root / "state"
     import_pipeline_path = benchmark_root / "seed.tql"
     log_path = benchmark_root / "logs" / "node.log"
-    events = context.definition.input_repetitions
+    input_name = _selected_input_name()
+    input_definition = context.definition.inputs[input_name]
+    events = input_definition.repetitions
     query_value = f"bench-{options.query_hit_index:06}.example"
     if options.query_hit_index >= events:
         raise ValueError("'node_catalog_lookup.query_hit_index' must refer to a generated event")
@@ -223,11 +249,20 @@ def node_catalog_lookup() -> FixtureHandle:
         startup_timeout_seconds=options.startup_timeout_seconds,
     )
 
-    def _seed(*, source_path: Path, input_path: Path, **_kwargs: object) -> None:
+    def _seed(
+        *,
+        source_inputs: dict[str, Path],
+        input_paths: dict[str, Path],
+        **_kwargs: object,
+    ) -> None:
+        selected_name = _selected_input_name()
+        source_path = source_inputs[selected_name]
+        input_path = input_paths[selected_name]
+        selected_input = context.definition.inputs[selected_name]
         _ = _write_dataset(
             input_path,
             source_path,
-            context.definition.input_repetitions,
+            selected_input.repetitions,
             options.query_hit_index,
         )
         _seed_node(
