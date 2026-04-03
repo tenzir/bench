@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, cast, overload, override
 
+from .runtime import TenzirRuntime
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -63,7 +65,14 @@ class FixtureContext:
     dataset_path: Path
     output_root: Path
     env: Mapping[str, str]
+    runtime: TenzirRuntime
     fixture_options: Mapping[str, object] = field(default_factory=_empty_fixture_options)
+
+    @property
+    def tenzir_bin(self) -> Path:
+        """Legacy path accessor; prefer ``runtime`` in new fixtures."""
+
+        return self.runtime.tenzir_path
 
 
 @dataclass(slots=True)

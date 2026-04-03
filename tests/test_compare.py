@@ -7,7 +7,6 @@ from unittest.mock import patch
 from tenzir_bench.compare import (
     CompareBuild,
     _cache_key,
-    _docker_wrapper_script,
     _unique_labels,
     expected_report_identities,
     prepare_compare_reports_for_build,
@@ -16,6 +15,7 @@ from tenzir_bench.compare import (
 from tenzir_bench.executor import BenchmarkExecutor, BuildInfo, build_result_id
 from tenzir_bench.paths import BenchPaths
 from tenzir_bench.reports import Report
+from tenzir_bench.runtime import _docker_wrapper_script
 
 
 def _ensure(path: Path) -> Path:

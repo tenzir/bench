@@ -24,6 +24,7 @@ from .hashing import hash_benchmark, hash_file
 from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
 from .reports import REPORT_SCHEMA_VERSION
+from .runtime import TenzirRuntime, runtime_from_path
 from .runners import Runner, RunnerMetrics, RunnerRegistry
 from .specs import discover_definitions
 
@@ -37,13 +38,14 @@ class BenchmarkContext:
     benchmark_hash: str
     input_hash: str
     root: Path
+    runtime: TenzirRuntime
 
 
 class BenchmarkExecutor:
     def __init__(
         self,
         paths: BenchPaths,
-        tenzir_bin: Path,
+        runtime: TenzirRuntime | Path,
         runner_registry: RunnerRegistry,
         tenzir_args: Sequence[str] = (),
         target: str | None = None,
@@ -53,9 +55,11 @@ class BenchmarkExecutor:
         verbose: bool = False,
     ) -> None:
         self.paths: BenchPaths = paths
-        self.tenzir_bin: Path = tenzir_bin
+        self.runtime: TenzirRuntime = (
+            runtime if isinstance(runtime, TenzirRuntime) else runtime_from_path(runtime)
+        )
         self.tenzir_args: tuple[str, ...] = tuple(tenzir_args)
-        self.target: str = target or _infer_target(tenzir_bin)
+        self.target: str = target or self.runtime.target
         self.runners: RunnerRegistry = runner_registry
         self.validate_only: bool = validate
         self.dry_run: bool = dry_run
@@ -95,6 +99,7 @@ class BenchmarkExecutor:
             benchmark_hash=hash_benchmark(definition),
             input_hash=hash_file(dataset),
             root=_benchmark_repo_root(definition.path),
+            runtime=self.runtime,
         )
 
     def _ensure_dataset(self, definition: BenchmarkDefinition) -> Path:
@@ -159,7 +164,7 @@ class BenchmarkExecutor:
         if not force:
             collected = self._collect_cached_reports(contexts, build)
             if collected:
-                _LOG.info("Reusing cached reports from state cache for %s", self.tenzir_bin)
+                _LOG.info("Reusing cached reports from state cache for %s", self.runtime.source)
                 return self._stage_reports(output_dir, build, collected)
         reports_generated: list[tuple[BenchmarkContext, Path]] = []
         if contexts:
@@ -181,7 +186,7 @@ class BenchmarkExecutor:
         output_root.mkdir(parents=True, exist_ok=True)
         self._validate_invocation()
         command = _tenzir_command(
-            self.tenzir_bin,
+            self.runtime,
             [*self.tenzir_args, *context.definition.tenzir_args],
             pipeline_path=context.definition.path,
         )
@@ -270,7 +275,7 @@ class BenchmarkExecutor:
         output_root = self._result_dir(context, build)
         self._validate_invocation()
         command = _tenzir_command(
-            self.tenzir_bin,
+            self.runtime,
             [*self.tenzir_args, *context.definition.tenzir_args],
             pipeline_path=context.definition.path,
         )
@@ -291,17 +296,15 @@ class BenchmarkExecutor:
         self._printed_commands.add(key)
         env_items = [f"{name}={env[name]}" for name in sorted(env)]
         options = f" {' '.join(self.tenzir_args)}" if self.tenzir_args else ""
-        print(f"# {context.definition.id} ({self.tenzir_bin}{options})")
+        print(f"# {context.definition.id} ({self.runtime.source}{options})")
         print(shlex.join(["env", *env_items, *command]))
 
     def _validate_invocation(self) -> None:
         if self._validated_invocation:
             return
         proc = subprocess.run(
-            _tenzir_command(
-                self.tenzir_bin,
-                self.tenzir_args,
-                pipeline="version | select version | write_ndjson",
+            self.runtime.command_for_tenzir(
+                [*self.tenzir_args, "version | select version | write_ndjson"]
             ),
             check=False,
             capture_output=True,
@@ -309,7 +312,7 @@ class BenchmarkExecutor:
         )
         if proc.returncode != 0:
             message = proc.stderr.strip() or proc.stdout.strip() or str(proc.returncode)
-            raise RuntimeError(f"Invalid Tenzir invocation for {self.tenzir_bin}: {message}")
+            raise RuntimeError(f"Invalid Tenzir invocation for {self.runtime.source}: {message}")
         self._validated_invocation = True
 
     def _print_dry_run_invocation(self, context: BenchmarkContext) -> None:
@@ -324,7 +327,7 @@ class BenchmarkExecutor:
             self._dry_run_result_dir(context),
         )
         command = _tenzir_command(
-            self.tenzir_bin,
+            self.runtime,
             [*self.tenzir_args, *context.definition.tenzir_args],
             pipeline_path=context.definition.path,
         )
@@ -382,7 +385,7 @@ class BenchmarkExecutor:
 
     def _get_build_info(self) -> BuildInfo:
         if self._build_info is None:
-            self._build_info = _detect_build(self.tenzir_bin, self.tenzir_args)
+            self._build_info = _detect_build(self.runtime, self.tenzir_args)
         return self._build_info
 
 
@@ -401,21 +404,17 @@ class BuildInfo:
         return self.version or "unknown"
 
 
-def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
+def _detect_build(runtime: TenzirRuntime, tenzir_args: Sequence[str]) -> BuildInfo:
     try:
-        proc = subprocess.run(
-            _tenzir_command(
-                tenzir_bin,
-                tenzir_args,
-                pipeline="version | select version, build_type=build.type | write_ndjson",
-            ),
-            check=True,
+        proc = runtime.run_tenzir(
+            args=[*tenzir_args, "version | select version, build_type=build.type | write_ndjson"],
             capture_output=True,
             text=True,
+            check=True,
         )
     except subprocess.CalledProcessError as exc:
         _LOG.warning("Failed to detect build metadata: %s", exc)
-        return BuildInfo(version=None, build_type=None, path=str(tenzir_bin))
+        return BuildInfo(version=None, build_type=None, path=runtime.source)
     line = proc.stdout.strip().splitlines()[0] if proc.stdout else ""
     payload = cast(object, json.loads(line))
     data = cast(dict[str, object], payload) if isinstance(payload, dict) else {}
@@ -424,7 +423,7 @@ def _detect_build(tenzir_bin: Path, tenzir_args: Sequence[str]) -> BuildInfo:
     return BuildInfo(
         version=version if isinstance(version, str) else None,
         build_type=build_type if isinstance(build_type, str) else None,
-        path=str(tenzir_bin.resolve()),
+        path=runtime.source,
     )
 
 
@@ -465,6 +464,7 @@ def _benchmark_runtime_env(
             dataset_path=context.dataset_path,
             output_root=output_root,
             env=dict(env),
+            runtime=context.runtime,
         ),
     )
     try:
@@ -634,13 +634,13 @@ def _staged_report_path(
 
 
 def _tenzir_command(
-    tenzir_bin: Path,
+    runtime: TenzirRuntime,
     tenzir_args: Sequence[str],
     *,
     pipeline: str | None = None,
     pipeline_path: Path | None = None,
 ) -> list[str]:
-    command = [str(tenzir_bin), *tenzir_args]
+    command = runtime.command_for_tenzir(tenzir_args)
     if pipeline is not None:
         command.append(pipeline)
     if pipeline_path is not None:
@@ -661,12 +661,6 @@ def _benchmark_env(
         env["BENCHMARK_OUTPUT_PATH"] = str(output_file)
     _refresh_forwarded_env(env)
     return env
-
-
-def _infer_target(tenzir_bin: Path) -> str:
-    if tenzir_bin.suffix == ".sh" and tenzir_bin.parent.name == "docker":
-        return "docker"
-    return "static"
 
 
 def _refresh_forwarded_env(env: dict[str, str]) -> None:

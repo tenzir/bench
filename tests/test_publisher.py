@@ -40,7 +40,7 @@ class PublisherTest(unittest.TestCase):
 
         s3.head_object = _head_object  # type: ignore[method-assign]
 
-        with patch("tenzir_bench.publisher.boto3.client", return_value=s3):
+        with patch("tenzir_bench.publisher.create_s3_client", return_value=s3):
             publisher = Publisher(bucket="bucket")
             publisher.publish_reports(
                 {("from_kafka_route53", "neo-string"): report},

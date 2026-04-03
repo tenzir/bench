@@ -10,7 +10,7 @@ from typing import TypeAlias
 
 import click
 
-from .compare import resolve_binaries, resolve_entry, run_compare
+from .compare import resolve_binaries, resolve_runtime_entry, run_compare
 from .datasets import DatasetManager
 from .definitions import BenchmarkDefinition
 from .evaluation import evaluate as evaluate_results
@@ -18,6 +18,7 @@ from .executor import BenchmarkContext, BenchmarkExecutor
 from .paths import BenchPaths
 from .publisher import Publisher
 from .reports import Report, load_report, select_fastest
+from .runtime import TenzirRuntime, runtime_from_path
 from .runners import RunnerRegistry
 from .specs import discover_definitions
 from .syncer import sync as sync_results
@@ -251,15 +252,15 @@ def _resolve_run_target(
     *,
     tenzir_target: str | None,
     tenzir_bin: Path | None,
-) -> Path:
+) -> TenzirRuntime:
     if tenzir_target is not None and tenzir_bin is not None:
         raise click.BadParameter("--tenzir and --tenzir-bin are mutually exclusive")
     if tenzir_target is not None:
         try:
-            return resolve_entry(paths, tenzir_target)
+            return resolve_runtime_entry(paths, tenzir_target)
         except (FileNotFoundError, ValueError) as exc:
             raise click.ClickException(str(exc)) from exc
-    return tenzir_bin or _resolve_tenzir()
+    return runtime_from_path(tenzir_bin or _resolve_tenzir())
 
 
 def _validate_mode_flags(validate: bool, dry_run: bool) -> None:
@@ -267,14 +268,17 @@ def _validate_mode_flags(validate: bool, dry_run: bool) -> None:
         raise click.BadParameter("--validate and --dry-run are mutually exclusive")
 
 
-def _detect_repo_root(tenzir: Path) -> Path:
-    for start in (Path.cwd().resolve(), tenzir.resolve()):
+def _detect_repo_root(runtime: TenzirRuntime) -> Path:
+    starts = [Path.cwd().resolve()]
+    if runtime.target == "static":
+        starts.append(runtime.tenzir_path.resolve())
+    for start in starts:
         if root := _find_repo_root(start):
             return root
     raise click.ClickException(
         (
             "Unable to locate a repository root containing bench/. Run the command "
-            "from a tenzir checkout or point --tenzir-bin at a binary inside one."
+            "from a tenzir checkout or point --tenzir at a target inside one."
         ),
     )
 

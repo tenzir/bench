@@ -217,7 +217,7 @@ class ReferencesTest(unittest.TestCase):
 
         s3 = _S3()
 
-        with patch("tenzir_bench.references.boto3.client", return_value=s3):
+        with patch("tenzir_bench.references.create_s3_client", return_value=s3):
             reports = download_reference_reports(
                 "s3://bucket/refs/main/abc123/static",
                 benchmarks={"from_kafka_route53"},

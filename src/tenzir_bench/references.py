@@ -9,9 +9,8 @@ from pathlib import Path, PurePosixPath
 from typing import TypeAlias, cast
 from urllib.parse import urlparse
 
-import boto3
-
 from .reports import Report, load_report, parse_report_payload
+from .s3_types import create_s3_client
 
 
 @dataclass(frozen=True)
@@ -108,14 +107,15 @@ def download_reference_reports(
     resolved = parse_destination(destination, default_bucket=default_bucket)
     selected = set(benchmarks or ())
     reports: dict[ReportIdentity, Report] = {}
-    s3 = boto3.client("s3")
+    s3 = create_s3_client()
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=resolved.bucket, Prefix=str(resolved.prefix)):
         for obj in page.get("Contents", []):
             key = obj.get("Key")
             if not isinstance(key, str) or not key.endswith(".json"):
                 continue
-            body = s3.get_object(Bucket=resolved.bucket, Key=key)["Body"].read().decode("utf-8")
+            body_obj = s3.get_object(Bucket=resolved.bucket, Key=key)["Body"]
+            body = body_obj.read().decode("utf-8")
             payload = _string_mapping(cast(object, json.loads(body)))
             if payload is None:
                 continue

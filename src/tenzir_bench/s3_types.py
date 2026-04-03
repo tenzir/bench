@@ -2,39 +2,41 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import Protocol, TypedDict, cast
 
-if TYPE_CHECKING:
-    from mypy_boto3_s3.client import S3Client as _S3Client
-    from mypy_boto3_s3.paginator import ListObjectsV2Paginator as _ListObjectsV2Paginator
-    from mypy_boto3_s3.type_defs import (
-        ListObjectsV2OutputTypeDef as _ListObjectsV2OutputTypeDef,
-        ObjectTypeDef as _ObjectTypeDef,
-    )
+import boto3  # pyright: ignore[reportMissingTypeStubs]
 
-    S3Client = _S3Client
-    ListObjectsV2Paginator = _ListObjectsV2Paginator
-    ListObjectsV2OutputTypeDef = _ListObjectsV2OutputTypeDef
-    ObjectTypeDef = _ObjectTypeDef
-else:
 
-    class ObjectTypeDef(TypedDict, total=False):
-        Key: str
+class ObjectTypeDef(TypedDict, total=False):
+    Key: str
 
-    class ListObjectsV2OutputTypeDef(TypedDict, total=False):
-        Contents: list[ObjectTypeDef]
 
-    class ListObjectsV2Paginator(Protocol):
-        def paginate(self, **kwargs: object) -> list[ListObjectsV2OutputTypeDef]: ...
+class ListObjectsV2OutputTypeDef(TypedDict, total=False):
+    Contents: list[ObjectTypeDef]
 
-    class S3Client(Protocol):
-        def upload_file(self, filename: str, bucket: str, key: str) -> object: ...
 
-        def head_object(self, **kwargs: object) -> object: ...
+class ListObjectsV2Paginator(Protocol):
+    def paginate(self, **kwargs: object) -> list[ListObjectsV2OutputTypeDef]: ...
 
-        def get_paginator(self, operation_name: str) -> ListObjectsV2Paginator: ...
 
-        def download_file(self, bucket: str, key: str, filename: str) -> object: ...
+class StreamingBody(Protocol):
+    def read(self) -> bytes: ...
+
+
+class S3Client(Protocol):
+    def upload_file(self, filename: str, bucket: str, key: str) -> object: ...
+
+    def head_object(self, **kwargs: object) -> object: ...
+
+    def get_paginator(self, operation_name: str) -> ListObjectsV2Paginator: ...
+
+    def download_file(self, bucket: str, key: str, filename: str) -> object: ...
+
+    def get_object(self, **kwargs: object) -> dict[str, StreamingBody]: ...
+
+
+def create_s3_client() -> S3Client:
+    return cast(S3Client, boto3.client("s3"))  # pyright: ignore[reportUnknownMemberType]
 
 
 __all__ = [
@@ -42,4 +44,6 @@ __all__ = [
     "ListObjectsV2Paginator",
     "ObjectTypeDef",
     "S3Client",
+    "StreamingBody",
+    "create_s3_client",
 ]

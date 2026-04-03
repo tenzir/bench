@@ -176,8 +176,9 @@ class CliTest(unittest.TestCase):
                 tenzir_bin=None,
             )
 
-        self.assertEqual(resolved.suffix, ".sh")
-        self.assertEqual(resolved.parent.name, "docker")
+        self.assertEqual(resolved.target, "docker")
+        self.assertEqual(resolved.tenzir_path.suffix, ".sh")
+        self.assertEqual(resolved.tenzir_path.parent.name, "docker")
 
     def test_compare_forwards_dry_run(self) -> None:
         cli_runner = CliRunner()
@@ -276,8 +277,9 @@ class CliTest(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 0, result.output)
         resolved = executor_cls.call_args.args[1]
-        self.assertEqual(resolved.parent.name, "docker")
-        self.assertEqual(resolved.suffix, ".sh")
+        self.assertEqual(resolved.target, "docker")
+        self.assertEqual(resolved.tenzir_path.parent.name, "docker")
+        self.assertEqual(resolved.tenzir_path.suffix, ".sh")
 
     def test_find_repo_root_walks_upward_to_bench(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

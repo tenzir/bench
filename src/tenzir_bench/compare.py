@@ -5,12 +5,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-import shlex
 import shutil
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from textwrap import dedent
 from typing import TypeAlias
 
 from .definitions import BenchmarkDefinition, BenchmarkError
@@ -25,6 +23,7 @@ from .references import (
     report_identity,
 )
 from .reports import Report, load_reports, report_requires_refresh, select_fastest
+from .runtime import TenzirRuntime, resolve_runtime, runtime_from_path
 from .runners import RunnerRegistry
 from .specs import load_definitions_from_paths
 
@@ -36,7 +35,8 @@ PipelineReports: TypeAlias = dict[str, Report]
 @dataclass(frozen=True)
 class CompareBuild:
     label: str
-    binary: Path | None
+    runtime: TenzirRuntime | None = None
+    binary: Path | None = None
     force: bool = False
     tenzir_args: tuple[str, ...] = ()
     reference_destination: str | None = None
@@ -50,11 +50,12 @@ def resolve_binaries(
 ) -> list[CompareBuild]:
     resolved: list[CompareBuild] = []
     for value, force, tenzir_args in entries:
-        binary = _resolve_entry(paths, value)
+        runtime = resolve_runtime(paths, value)
         resolved.append(
             CompareBuild(
                 label=str(value),
-                binary=binary,
+                runtime=runtime,
+                binary=runtime.tenzir_path,
                 force=force,
                 tenzir_args=tenzir_args,
             ),
@@ -65,23 +66,11 @@ def resolve_binaries(
 
 
 def resolve_entry(paths: BenchPaths, value: str) -> Path:
-    return _resolve_entry(paths, value)
+    return resolve_runtime(paths, value).tenzir_path
 
 
-def _resolve_entry(paths: BenchPaths, value: str) -> Path:
-    if value.startswith("docker://"):
-        image = value[len("docker://") :].strip()
-        if not image:
-            raise ValueError("docker image reference must not be empty")
-        return _ensure_docker_wrapper(paths, image)
-    path = Path(value)
-    if path.is_dir():
-        candidate = path / "bin" / "tenzir"
-    else:
-        candidate = path
-    if not candidate.exists():
-        raise FileNotFoundError(f"No tenzir executable at {candidate}")
-    return candidate
+def resolve_runtime_entry(paths: BenchPaths, value: str) -> TenzirRuntime:
+    return resolve_runtime(paths, value)
 
 
 def run_compare(
@@ -228,7 +217,7 @@ def _prepare_reference_backed_reports(
     dry_run: bool,
     verbose: bool,
 ) -> dict[str, Report]:
-    target = build.target or (build.binary and _compare_target(build.binary))
+    target = build.target or _compare_target(build)
     if not target:
         raise RuntimeError(f"{build.label}: reference-backed build requires a target")
     if build.reference_destination is None:
@@ -251,7 +240,7 @@ def _prepare_reference_backed_reports(
     missing = missing_report_identities(expected, remote_reports)
     if not missing:
         return _reports_by_pipeline(remote_reports.values())
-    if build.binary is None:
+    if _build_runtime(build) is None:
         raise RuntimeError(
             f"{build.label}: reference is missing benchmark reports and no local build path is available to backfill",
         )
@@ -294,7 +283,8 @@ def _prepare_local_reports(
     dry_run: bool,
     verbose: bool,
 ) -> dict[str, Report]:
-    if build.binary is None:
+    runtime = _build_runtime(build)
+    if runtime is None:
         raise RuntimeError(f"{build.label}: local compare build is missing a binary path")
     executor = _build_executor(
         paths,
@@ -330,11 +320,12 @@ def _build_executor(
     dry_run: bool,
     verbose: bool,
 ) -> BenchmarkExecutor:
-    if build.binary is None:
+    runtime = _build_runtime(build)
+    if runtime is None:
         raise RuntimeError(f"{build.label}: local executor requires a binary path")
     return BenchmarkExecutor(
         paths,
-        build.binary,
+        runtime,
         registry,
         tenzir_args=build.tenzir_args,
         target=build.target,
@@ -349,20 +340,41 @@ def _compare_dir(
 ) -> Path:
     root = compare_root or executor.paths.results_state_dir / "compare"
     info = executor.build_info()
-    label = _display_label(info, build.binary or Path(build.label), build.tenzir_args)
-    return root / _cache_key(
-        info, build.binary or Path(build.label), build.tenzir_args, label_override=label
-    )
+    path_hint = _build_path_hint(build)
+    label = _display_label(info, path_hint, build.tenzir_args)
+    return root / _cache_key(info, path_hint, build.tenzir_args, label_override=label)
 
 
 def _reports_by_pipeline(reports: Iterable[Report]) -> dict[str, Report]:
     return {report.pipeline: report for report in reports}
 
 
-def _compare_target(binary: Path) -> str:
-    if binary.suffix == ".sh" and binary.parent.name == "docker":
+def _compare_target(build: CompareBuild) -> str:
+    runtime = _build_runtime(build)
+    if runtime is not None:
+        return runtime.target
+    if (
+        build.binary is not None
+        and build.binary.suffix == ".sh"
+        and build.binary.parent.name == "docker"
+    ):
         return "docker"
     return "static"
+
+
+def _build_runtime(build: CompareBuild) -> TenzirRuntime | None:
+    if build.runtime is not None:
+        return build.runtime
+    if build.binary is None:
+        return None
+    return runtime_from_path(build.binary)
+
+
+def _build_path_hint(build: CompareBuild) -> Path:
+    runtime = _build_runtime(build)
+    if runtime is not None:
+        return runtime.tenzir_path
+    return build.binary or Path(build.label)
 
 
 def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list[LoadedDefinition]:
@@ -570,101 +582,3 @@ def _cache_key(
         f"{info.path}\0{build_result_id(info, tenzir_args)}\0{info.build_type}".encode("utf-8"),
     ).hexdigest()[:12]
     return f"{safe_label}-{digest}"
-
-
-def _ensure_docker_wrapper(paths: BenchPaths, image: str) -> Path:
-    wrapper_dir = paths.ensure_dir(paths.state_dir / "docker")
-    digest = hashlib.sha256(image.encode("utf-8")).hexdigest()[:8]
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", image)
-    wrapper_path = wrapper_dir / f"{safe}-{digest}.sh"
-    script = _docker_wrapper_script(image, paths)
-    _ = wrapper_path.write_text(script, encoding="utf-8")
-    wrapper_path.chmod(0o755)
-    return wrapper_path
-
-
-def _docker_wrapper_script(image: str, paths: BenchPaths) -> str:
-    cache_dir = shlex.quote(str(paths.cache_dir))
-    state_dir = shlex.quote(str(paths.state_dir))
-    work_dir = shlex.quote(str(Path.cwd()))
-    image_ref = shlex.quote(image)
-    return dedent(
-        f"""\
-        #!/usr/bin/env bash
-        set -euo pipefail
-
-        IMAGE={image_ref}
-        CACHE_DIR={cache_dir}
-        STATE_DIR={state_dir}
-        WORK_DIR={work_dir}
-
-        if ! command -v docker >/dev/null 2>&1; then
-            echo "docker executable not found" >&2
-            exit 127
-        fi
-
-        if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-            docker pull "$IMAGE" >&2
-        fi
-
-        ENTRYPOINT_JSON="$(docker image inspect --format '{{{{json .Config.Entrypoint}}}}' "$IMAGE")"
-        CMD_JSON="$(docker image inspect --format '{{{{json .Config.Cmd}}}}' "$IMAGE")"
-
-        declare -a volumes=()
-
-        _add_volume() {{
-            local dir="$1"
-            local mode="${{2:-}}"
-            if [[ -z "$dir" || ! -d "$dir" ]]; then
-                return
-            fi
-            local spec="${{dir}}:${{dir}}"
-            if [[ -n "$mode" ]]; then
-                spec="${{spec}}:${{mode}}"
-            fi
-            volumes+=("-v" "$spec")
-        }}
-
-        _add_volume "$CACHE_DIR" "ro"
-        _add_volume "$STATE_DIR"
-        _add_volume "$WORK_DIR"
-
-        declare -a env_names=()
-        if [[ -n "${{TENZIR_BENCH_FORWARD_ENV:-}}" ]]; then
-            IFS=',' read -ra env_names <<< "${{TENZIR_BENCH_FORWARD_ENV}}"
-        fi
-        declare -a forward_envs=()
-        for name in "${{env_names[@]}}"; do
-            name="${{name//[[:space:]]/}}"
-            [[ -z "$name" ]] && continue
-            if [[ -n "${{!name-}}" ]]; then
-                forward_envs+=("-e" "$name")
-            fi
-        done
-
-        PYTHON_WRAPPER="$(cat <<'PY'
-        import json
-        import os
-        import subprocess
-        import sys
-
-        entrypoint = json.loads(sys.argv[1]) or []
-        default_cmd = json.loads(sys.argv[2]) or []
-        sep = sys.argv.index("--")
-        runtime_args = sys.argv[sep + 1 :]
-        argv = entrypoint + (runtime_args if runtime_args else default_cmd)
-        if not argv:
-            print("docker image is missing an entrypoint/cmd for tenzir-bench", file=sys.stderr)
-            raise SystemExit(127)
-        proc = subprocess.Popen(argv)
-        _pid, status, rusage = os.wait4(proc.pid, 0)
-        exit_code = os.waitstatus_to_exitcode(status)
-        if exit_code == 0:
-            print(f"tenzir-bench-maxrss={{rusage.ru_maxrss}}", file=sys.stderr)
-        raise SystemExit(exit_code)
-        PY
-        )"
-
-        exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${{volumes[@]}}" "${{forward_envs[@]}}" --entrypoint python3 "$IMAGE" -c "$PYTHON_WRAPPER" "$ENTRYPOINT_JSON" "$CMD_JSON" -- "$@"
-        """,
-    )

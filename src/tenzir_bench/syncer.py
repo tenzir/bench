@@ -6,11 +6,9 @@ import logging
 from collections.abc import Iterable, Sequence
 from pathlib import PurePosixPath
 
-import boto3
-
 from .metadata import GitHubMetadata, MainCommitMetadata, ReleaseMetadata
 from .paths import BenchPaths
-from .s3_types import ListObjectsV2OutputTypeDef, ListObjectsV2Paginator, ObjectTypeDef, S3Client
+from .s3_types import ListObjectsV2Paginator, S3Client, create_s3_client
 
 _LOG = logging.getLogger(__name__)
 
@@ -21,7 +19,7 @@ class ResultSyncer:
     def __init__(self, paths: BenchPaths, bucket: str = DEFAULT_BUCKET) -> None:
         self.paths: BenchPaths = paths
         self.bucket: str = bucket
-        self.s3: S3Client = boto3.client("s3")
+        self.s3: S3Client = create_s3_client()
 
     def sync_results(
         self,
@@ -36,10 +34,8 @@ class ResultSyncer:
         paginator: ListObjectsV2Paginator = self.s3.get_paginator("list_objects_v2")
         for prefix in prefixes:
             for page in paginator.paginate(Bucket=self.bucket, Prefix=str(prefix)):
-                typed_page: ListObjectsV2OutputTypeDef = page
-                for obj in typed_page.get("Contents", []):
-                    typed_obj: ObjectTypeDef = obj
-                    key = typed_obj.get("Key")
+                for obj in page.get("Contents", []):
+                    key = obj.get("Key")
                     if not isinstance(key, str):
                         continue
                     if key.endswith("/"):
@@ -49,7 +45,7 @@ class ResultSyncer:
                         continue
                     local_path.parent.mkdir(parents=True, exist_ok=True)
                     _LOG.info("Downloading %s", key)
-                    self.s3.download_file(self.bucket, key, str(local_path))
+                    _ = self.s3.download_file(self.bucket, key, str(local_path))
 
 
 def sync(paths: BenchPaths, full: bool, refresh: bool) -> None:

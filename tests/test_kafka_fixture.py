@@ -8,6 +8,7 @@ from unittest.mock import patch
 from tenzir_bench import fixtures as fixture_api
 from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
 from tenzir_bench.kafka_fixture import KafkaFixtureOptions
+from tenzir_bench.runtime import runtime_from_path
 
 
 class KafkaFixtureTest(unittest.TestCase):
@@ -93,6 +94,7 @@ class KafkaFixtureTest(unittest.TestCase):
                     dataset_path=dataset,
                     output_root=root / "out",
                     env={},
+                    runtime=runtime_from_path(root / "bin" / "tenzir"),
                 )
             )
             try:
@@ -194,6 +196,7 @@ class KafkaFixtureTest(unittest.TestCase):
                     dataset_path=root / "input.json",
                     output_root=root / "out",
                     env={},
+                    runtime=runtime_from_path(root / "bin" / "tenzir"),
                 )
             )
             try:
