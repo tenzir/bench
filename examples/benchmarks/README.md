@@ -56,13 +56,25 @@ Fixtures stay active for the full benchmark and may expose `before_run` and
 between warmup and measurement runs. This is the intended way to keep sources
 like Kafka populated across repeated iterations.
 
+New fixtures should use `current_context().runtime` instead of resolving
+executables from `PATH`. The runtime already knows whether the benchmark is
+running against a local binary or a `docker://...` target, and exposes
+target-agnostic helpers for both `tenzir` and `tenzir-node`.
+
+The `integrations/suricata-node-catalog-lookup.tql` example shows this pattern.
+Its `node_catalog_lookup` fixture:
+
+- starts `tenzir-node` through `runtime.popen_tenzir_node(...)`
+- seeds the node through `runtime.run_tenzir(...)`
+- keeps the benchmark logic independent of the selected runtime target
+
 ## Example Pipelines
 
 - `operators/` contains benchmarks for core Tenzir operators (JSON/KV/CSV
   parsing, filtering, sorting, summarizing, deduplication).
 - `examples/` hosts smaller micro-benchmarks for quick sanity checks.
 - `integrations/` contains fixture-backed benchmarks for external systems such
-  as Kafka.
+  as Kafka and node-backed catalog lookups.
 
 ## Adding New Benchmarks
 

@@ -1,0 +1,32 @@
+---
+benchmark:
+  id: suricata-node-catalog-lookup
+  description: Query a node seeded with one-event Suricata DNS partitions
+  tags:
+    dataset: synthetic-suricata-dns
+    runtime: node
+    scenario: catalog-lookup
+  min_version: "5.23.0"
+  input:
+    path: suricata-dns.seed.ndjson
+    source: ../../fixtures/suricata-dns.seed.ndjson
+    events: 10000
+    measure: true
+  env:
+    TENZIR_CONSOLE_FORMAT: none
+  fixtures:
+    - node_catalog_lookup:
+        events: 10000
+        max_partition_size: 1
+        schema: suricata
+        query_hit_index: 5000
+  tenzir_args:
+    - --neo
+  runtime:
+    warmup_runs: 1
+    measurement_runs: 3
+    timeout_seconds: 900
+---
+export
+where net.domain == env("BENCHMARK_LOOKUP_VALUE")
+discard
