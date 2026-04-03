@@ -86,6 +86,14 @@ def resolve_runtime(paths: BenchPaths, value: str) -> TenzirRuntime:
 
 def runtime_from_path(path: Path) -> TenzirRuntime:
     resolved = path.resolve()
+    if resolved.suffix == ".sh" and resolved.parent.name == "docker":
+        tenzir_path, tenzir_node_path = _docker_wrapper_paths(resolved)
+        return TenzirRuntime(
+            target="docker",
+            source=str(tenzir_path),
+            tenzir_path=tenzir_path,
+            tenzir_node_path=tenzir_node_path,
+        )
     node = resolved.with_name("tenzir-node")
     node_path = node if node.exists() else None
     return TenzirRuntime(
@@ -125,6 +133,18 @@ def _docker_runtime(paths: BenchPaths, image: str) -> TenzirRuntime:
         tenzir_path=tenzir_wrapper,
         tenzir_node_path=tenzir_node_wrapper,
     )
+
+
+def _docker_wrapper_paths(path: Path) -> tuple[Path, Path | None]:
+    if path.stem.endswith("-node"):
+        tenzir_node_path = path
+        tenzir_path = path.with_name(f"{path.stem[:-5]}{path.suffix}")
+    else:
+        tenzir_path = path
+        tenzir_node_path = path.with_name(f"{path.stem}-node{path.suffix}")
+    if not tenzir_node_path.exists():
+        tenzir_node_path = None
+    return tenzir_path, tenzir_node_path
 
 
 def _runtime_env(target: TargetKind, env: Mapping[str, str] | None) -> dict[str, str] | None:

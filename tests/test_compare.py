@@ -38,6 +38,26 @@ class CompareHelpersTest(unittest.TestCase):
 
         self.assertEqual(runtime.command_for_tenzir_node(())[0], str(tenzir_node))
 
+    def test_runtime_from_path_recovers_docker_node_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            docker_dir = Path(tmpdir) / "state" / "docker"
+            docker_dir.mkdir(parents=True, exist_ok=True)
+            tenzir_wrapper = docker_dir / "example-1234.sh"
+            tenzir_wrapper.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            tenzir_wrapper.chmod(0o755)
+            tenzir_node_wrapper = docker_dir / "example-1234-node.sh"
+            tenzir_node_wrapper.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            tenzir_node_wrapper.chmod(0o755)
+
+            runtime = runtime_from_path(tenzir_wrapper)
+
+        self.assertEqual(runtime.target, "docker")
+        self.assertEqual(runtime.command_for_tenzir(()), [str(tenzir_wrapper)])
+        self.assertEqual(
+            runtime.command_for_tenzir_node(()),
+            [str(tenzir_node_wrapper)],
+        )
+
     def test_cache_key_distinguishes_same_version_binaries(self) -> None:
         info_a = BuildInfo(version="v1.2.3", build_type="Release", path="/tmp/a/bin/tenzir")
         info_b = BuildInfo(version="v1.2.3", build_type="Release", path="/tmp/b/bin/tenzir")
