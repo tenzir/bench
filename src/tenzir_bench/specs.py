@@ -43,7 +43,7 @@ def discover_definitions(
             patterns=[pattern] if pattern else None,
             version_supplier=version_supplier,
         )
-    return _discover_legacy_definitions(resolved_root, pattern)
+    return _discover_example_definitions(resolved_root, pattern, version_supplier=version_supplier)
 
 
 def load_definitions_from_paths(
@@ -115,20 +115,25 @@ def _load_bench_root(
     return _load_spec_entries(selected, version=version_supplier())
 
 
-def _discover_legacy_definitions(root: Path, pattern: str | None) -> list[BenchmarkDefinition]:
-    legacy_root = root / "examples" / "benchmarks"
+def _discover_example_definitions(
+    root: Path,
+    pattern: str | None,
+    *,
+    version_supplier: Callable[[], str | None],
+) -> list[BenchmarkDefinition]:
+    examples_root = root / "examples" / "benchmarks"
     if pattern:
         candidate = Path(pattern)
         if candidate.exists():
-            return [_load_legacy_definition(candidate.resolve())]
-    if not legacy_root.exists():
+            return load_definitions_from_paths(
+                [candidate.resolve()],
+                version_supplier=version_supplier,
+                root=root,
+            )
+    if not examples_root.exists():
         return []
-    files = sorted(legacy_root.rglob("*.tql"))
-    if pattern:
-        from fnmatch import fnmatch
-
-        files = [file for file in files if fnmatch(str(file), pattern)]
-    return [_load_legacy_definition(file.resolve()) for file in files]
+    selected = _select_benchmark_dirs(examples_root, [pattern] if pattern else None)
+    return _load_spec_entries(selected, version=version_supplier())
 
 
 def _load_legacy_definition(path: Path) -> BenchmarkDefinition:

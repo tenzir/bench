@@ -198,10 +198,10 @@ benchmark:
 `benchmark.fixture: kafka` is accepted as a shorthand for a single fixture, but
 `fixture` and `fixtures` cannot be used together.
 
-Fixture modules are discovered from `fixtures.py` files between the current
-working directory and the benchmark file. An example benchmark under
-`examples/benchmarks/integrations/from-kafka.tql` can therefore use a colocated
-`examples/benchmarks/integrations/fixtures.py`.
+Fixture modules are discovered from `fixtures.py` files and `fixtures/**/*.py`
+modules between the current working directory and the benchmark file. An
+example benchmark under `examples/benchmarks/suricata_from_kafka/` can
+therefore use `examples/fixtures/kafka/fixture.py`.
 
 Fixture modules use the `tenzir_bench.fixtures` API:
 
@@ -236,16 +236,18 @@ iterations. Fixture-provided environment variables are merged into the benchmark
 environment and forwarded automatically when the benchmark runs inside a Docker
 wrapper via `bench compare`.
 
-This repository now ships runnable examples under `examples/`, including a
-concrete Kafka fixture and example benchmark under
-`examples/benchmarks/integrations/` for `from_kafka` scenarios.
+This repository now ships three runnable examples under `examples/`:
+
+- `examples/benchmarks/suricata_parse_json/`
+- `examples/benchmarks/suricata_from_kafka/`
+- `examples/benchmarks/suricata_node_catalog_lookup/`
 
 To add a new benchmark:
 
 1. Create `bench/benchmarks/<id>/` in the target repository for real benchmarks,
-   or add a runnable sample under `examples/benchmarks/<category>/<id>.tql` in
+   or add a runnable sample under `examples/benchmarks/<id>/` in
    this repository.
-1. Run `bench run path/to/<id>.tql` to generate measurement reports.
+1. Run `bench run path/to/<id>` to generate measurement reports.
 1. Validate results with `bench eval`.
 
 Runners wrap the Tenzir invocation to collect metrics (e.g., `/usr/bin/time`

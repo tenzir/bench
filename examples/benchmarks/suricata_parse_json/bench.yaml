@@ -1,0 +1,14 @@
+description: Parse Suricata EVE JSON strings manually
+tags:
+  dataset: suricata-eve
+  operator: parse_json
+input:
+  path: suricata/eve.json
+  events: 984865
+  measure: true
+env:
+  TENZIR_CONSOLE_FORMAT: none
+runtime:
+  warmup_runs: 1
+  measurement_runs: 3
+  timeout_seconds: 900

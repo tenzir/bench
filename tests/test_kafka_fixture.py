@@ -1,13 +1,12 @@
 import subprocess
 import tempfile
 import unittest
-from io import BytesIO
 from pathlib import Path
+from typing import final
 from unittest.mock import patch
 
 from tenzir_bench import fixtures as fixture_api
 from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
-from tenzir_bench.kafka_fixture import KafkaFixtureOptions
 from tenzir_bench.runtime import runtime_from_path
 
 
@@ -18,13 +17,11 @@ class KafkaFixtureTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            compose_file = root / "examples" / "benchmarks" / "integrations" / "compose.yaml"
-            compose_file.parent.mkdir(parents=True, exist_ok=True)
-            compose_file.write_text("services: {}\n", encoding="utf-8")
-            benchmark_path = compose_file.parent / "suricata-from-kafka.tql"
-            benchmark_path.write_text("discard\n", encoding="utf-8")
+            benchmark_path = Path("examples/benchmarks/suricata_from_kafka/default.tql")
             dataset = root / "suricata-eve.json"
-            dataset.write_text('{"event_type":"flow"}\n{"event_type":"dns"}\n', encoding="utf-8")
+            _ = dataset.write_text(
+                '{"event_type":"flow"}\n{"event_type":"dns"}\n', encoding="utf-8"
+            )
             definition = BenchmarkDefinition(
                 path=benchmark_path,
                 id="suricata-from-kafka",
@@ -39,54 +36,75 @@ class KafkaFixtureTest(unittest.TestCase):
                 output_path=None,
                 output_measure=False,
                 env={},
-                fixtures=(fixture_api.FixtureSpec(name="kafka", options={"topic": "bench"}),),
+                fixtures=(
+                    fixture_api.FixtureSpec(
+                        name="kafka",
+                        options={"topic": "bench", "repetitions": 5},
+                    ),
+                ),
                 tenzir_args=[],
                 runner="time",
                 runtime=BenchmarkRuntime(),
                 pipeline_body="discard",
             )
 
-            def _fake_run(  # noqa: ANN001
-                cmd,
-                cwd=None,
-                stdin=None,
-                capture_output=None,
-                text=None,
-                check=None,
-            ):
-                del capture_output, text, check
+            def _fake_run(
+                cmd: list[str],
+                cwd: Path | None = None,
+                stdin: object | None = None,
+                capture_output: bool | None = None,
+                text: bool | None = None,
+                check: bool | None = None,
+            ) -> subprocess.CompletedProcess[str]:
+                del cwd, stdin, capture_output, text, check
                 text_cmd = [str(part) for part in cmd]
                 commands.append(text_cmd)
                 if text_cmd == ["docker", "compose", "version"]:
                     return subprocess.CompletedProcess(text_cmd, 0, stdout="compose ok", stderr="")
                 return subprocess.CompletedProcess(text_cmd, 0, stdout="", stderr="")
 
-            class _FakeStdin(BytesIO):
+            @final
+            @final
+            class _FakeStdin:
                 def __init__(self) -> None:
-                    super().__init__()
-                    self.payload = b""
+                    self._buffer = bytearray()
+                    self.payload: bytes = b""
+
+                def write(self, data: bytes) -> int:
+                    self._buffer.extend(data)
+                    return len(data)
 
                 def close(self) -> None:
-                    self.payload = self.getvalue()
-                    super().close()
+                    self.payload = bytes(self._buffer)
 
+            @final
             class _FakePopen:
-                def __init__(self, cmd, cwd=None, stdin=None, stdout=None, stderr=None):  # noqa: ANN001
+                def __init__(
+                    self,
+                    cmd: list[str],
+                    cwd: Path | None = None,
+                    stdin: object | None = None,
+                    stdout: object | None = None,
+                    stderr: object | None = None,
+                ) -> None:
                     del cwd, stdin, stdout, stderr
-                    self.cmd = [str(part) for part in cmd]
+                    self.cmd: list[str] = [str(part) for part in cmd]
                     commands.append(self.cmd)
-                    self.stdin = _FakeStdin()
-                    self.returncode = 0
+                    self.stdin: _FakeStdin = _FakeStdin()
+                    self.stderr = _FakeStderr()
+                    self.returncode: int = 0
 
-                def communicate(self):  # noqa: ANN201
+                def wait(self) -> int:
                     published_payloads.append(self.stdin.payload)
-                    return (b"", b"")
+                    return self.returncode
 
                 def kill(self) -> None:
                     return None
 
-                def wait(self) -> int:
-                    return self.returncode
+            @final
+            class _FakeStderr:
+                def read(self) -> bytes:
+                    return b""
 
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
@@ -98,13 +116,12 @@ class KafkaFixtureTest(unittest.TestCase):
                 )
             )
             try:
+                fixture_api.load_fixture_modules(benchmark_path, root=Path.cwd())
                 with (
-                    patch(
-                        "tenzir_bench.kafka_fixture.shutil.which", return_value="/usr/bin/docker"
-                    ),
-                    patch("tenzir_bench.kafka_fixture.subprocess.run", side_effect=_fake_run),
-                    patch("tenzir_bench.kafka_fixture.subprocess.Popen", side_effect=_FakePopen),
-                    patch("tenzir_bench.kafka_fixture.time.sleep"),
+                    patch("shutil.which", return_value="/usr/bin/docker"),
+                    patch("subprocess.run", side_effect=_fake_run),
+                    patch("subprocess.Popen", side_effect=_FakePopen),
+                    patch("time.sleep"),
                     fixture_api.activate(definition.fixtures) as env,
                 ):
                     self.assertEqual(env["BENCHMARK_KAFKA_BOOTSTRAP_SERVERS"], "127.0.0.1:9092")
@@ -127,7 +144,7 @@ class KafkaFixtureTest(unittest.TestCase):
         self.assertEqual(len(published_payloads), 1)
         self.assertEqual(
             published_payloads[0],
-            (b'{"event_type":"flow"}\n{"event_type":"dns"}\n' * 500),
+            (b'{"event_type":"flow"}\n{"event_type":"dns"}\n' * 5),
         )
         flat_commands = [" ".join(command) for command in commands]
         self.assertTrue(any("docker compose version" == command for command in flat_commands))
@@ -162,11 +179,8 @@ class KafkaFixtureTest(unittest.TestCase):
     def test_kafka_fixture_reports_missing_docker_compose(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            compose_file = root / "examples" / "benchmarks" / "integrations" / "compose.yaml"
-            compose_file.parent.mkdir(parents=True, exist_ok=True)
-            compose_file.write_text("services: {}\n", encoding="utf-8")
             definition = BenchmarkDefinition(
-                path=compose_file.parent / "suricata-from-kafka.tql",
+                path=Path("examples/benchmarks/suricata_from_kafka/default.tql"),
                 id="suricata-from-kafka",
                 description=None,
                 tags={},
@@ -182,7 +196,7 @@ class KafkaFixtureTest(unittest.TestCase):
                 fixtures=(
                     fixture_api.FixtureSpec(
                         name="kafka",
-                        options=KafkaFixtureOptions(topic="bench").__dict__,
+                        options={"topic": "bench"},
                     ),
                 ),
                 tenzir_args=[],
@@ -200,8 +214,9 @@ class KafkaFixtureTest(unittest.TestCase):
                 )
             )
             try:
+                fixture_api.load_fixture_modules(definition.path, root=Path.cwd())
                 with (
-                    patch("tenzir_bench.kafka_fixture.shutil.which", return_value=None),
+                    patch("shutil.which", return_value=None),
                     self.assertRaises(fixture_api.FixtureUnavailable),
                 ):
                     with fixture_api.activate(definition.fixtures):

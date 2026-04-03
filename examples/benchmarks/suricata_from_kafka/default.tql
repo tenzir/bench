@@ -1,0 +1,14 @@
+---
+bench:
+  id: default
+  description: Read Suricata EVE records from Kafka via from_kafka.
+---
+from_kafka f"{env("BENCHMARK_KAFKA_TOPIC")}",
+  count=984865,
+  offset="beginning",
+  options={
+    "bootstrap.servers": f"{env("BENCHMARK_KAFKA_BOOTSTRAP_SERVERS")}",
+    "group.id": f"{env("BENCHMARK_KAFKA_GROUP_ID")}",
+  }
+this = move message.parse_json()
+discard

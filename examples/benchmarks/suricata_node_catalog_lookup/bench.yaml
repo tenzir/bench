@@ -1,0 +1,22 @@
+description: Query a node seeded with one-event Suricata DNS partitions
+tags:
+  dataset: synthetic-suricata-dns
+  runtime: node
+  scenario: catalog-lookup
+input:
+  path: suricata-dns.seed.ndjson
+  source: ../../fixtures/node_catalog_lookup/suricata-dns.seed.ndjson
+  events: 10000
+  measure: true
+env:
+  TENZIR_CONSOLE_FORMAT: none
+fixtures:
+  - node_catalog_lookup:
+      events: 10000
+      max_partition_size: 1
+      schema: suricata
+      query_hit_index: 5000
+runtime:
+  warmup_runs: 1
+  measurement_runs: 3
+  timeout_seconds: 900

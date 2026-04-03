@@ -6,6 +6,38 @@ from tenzir_bench.specs import discover_definitions, load_definitions_from_paths
 
 
 class SpecsTest(unittest.TestCase):
+    def test_discover_definitions_loads_directory_based_examples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = root / "examples" / "benchmarks" / "suricata_parse_json"
+            suite.mkdir(parents=True)
+            (suite / "bench.yaml").write_text(
+                """description: Parse Suricata events
+input:
+  path: suricata/eve.json
+  events: 1
+  measure: true
+""",
+                encoding="utf-8",
+            )
+            (suite / "default.tql").write_text(
+                """---
+bench:
+  id: default
+---
+discard
+""",
+                encoding="utf-8",
+            )
+
+            definitions = discover_definitions(
+                None,
+                version_supplier=lambda: "v5.30.1",
+                root=root,
+            )
+
+        self.assertEqual([definition.id for definition in definitions], ["suricata_parse_json/default"])
+
     def test_discover_definitions_loads_defaults_and_filters_by_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

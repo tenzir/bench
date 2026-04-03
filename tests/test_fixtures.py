@@ -8,6 +8,10 @@ from tenzir_bench.runtime import TenzirRuntime
 from tenzir_bench import fixtures as fixture_api
 
 
+def _fixture_factories() -> dict[str, object]:
+    return cast(dict[str, object], getattr(fixture_api, "_FACTORIES"))
+
+
 class FixtureLoadingTest(unittest.TestCase):
     def test_load_fixture_modules_imports_nearby_fixtures_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -30,7 +34,7 @@ def auto_loaded_fixture():
             with fixture_api.activate((fixture_api.FixtureSpec(name="auto-loaded"),)) as env:
                 self.assertEqual(env["AUTO_LOADED_FIXTURE"], "ok")
 
-        _ = fixture_api._FACTORIES.pop("auto-loaded", None)  # type: ignore[attr-defined]
+        _ = _fixture_factories().pop("auto-loaded", None)
 
     def test_load_fixture_modules_imports_shared_bench_fixture_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -38,9 +42,9 @@ def auto_loaded_fixture():
             benchmark = root / "bench" / "benchmarks" / "integrations" / "from-kafka.tql"
             benchmark.parent.mkdir(parents=True, exist_ok=True)
             _ = benchmark.write_text("discard\n", encoding="utf-8")
-            fixtures_dir = root / "bench" / "fixtures"
+            fixtures_dir = root / "bench" / "fixtures" / "shared"
             fixtures_dir.mkdir(parents=True, exist_ok=True)
-            fixture_file = fixtures_dir / "shared_bench.py"
+            fixture_file = fixtures_dir / "fixture.py"
             _ = fixture_file.write_text(
                 """from tenzir_bench.fixtures import fixture
 
@@ -55,7 +59,7 @@ def shared_bench_fixture():
             with fixture_api.activate((fixture_api.FixtureSpec(name="shared-bench"),)) as env:
                 self.assertEqual(env["SHARED_BENCH_FIXTURE"], "ok")
 
-        _ = fixture_api._FACTORIES.pop("shared-bench", None)  # type: ignore[attr-defined]
+        _ = _fixture_factories().pop("shared-bench", None)
 
     def test_node_catalog_lookup_uses_runtime_api(self) -> None:
         @final
@@ -71,6 +75,7 @@ def shared_bench_fixture():
                 self.signals.append(signum)
 
             def wait(self, timeout: float | None = None) -> int:
+                del timeout
                 self.wait_calls += 1
                 return 0
 
@@ -101,7 +106,7 @@ def shared_bench_fixture():
                 assert cwd is None
                 assert stdout is not None
                 handle = cast(TextIO, stdout)
-                handle.write("127.0.0.1:5151\n")
+                _ = handle.write("127.0.0.1:5151\n")
                 handle.flush()
                 return self.process
 
@@ -136,7 +141,7 @@ def shared_bench_fixture():
                 self.path: Path = path
 
         fixture_api.load_fixture_modules(
-            Path("examples/benchmarks/integrations/suricata-node-catalog-lookup.tql"),
+            Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql"),
             root=Path.cwd(),
         )
 
@@ -147,7 +152,7 @@ def shared_bench_fixture():
             expected_state_dir = root / "output" / "node-catalog-lookup" / "state"
             context = fixture_api.FixtureContext(
                 definition=DefinitionStub(
-                    Path("examples/benchmarks/integrations/suricata-node-catalog-lookup.tql")
+                    Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql")
                 ),
                 dataset_path=dataset_path,
                 output_root=root / "output",

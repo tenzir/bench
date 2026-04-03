@@ -570,7 +570,7 @@ def load_fixture_modules(benchmark_path: Path, *, root: Path | None = None) -> N
             _load_fixture_module(candidate)
         fixtures_dir = directory / "fixtures"
         if fixtures_dir.is_dir():
-            for module_path in sorted(fixtures_dir.glob("*.py")):
+            for module_path in sorted(fixtures_dir.rglob("*.py")):
                 if module_path.name == "__init__.py":
                     continue
                 _load_fixture_module(module_path)

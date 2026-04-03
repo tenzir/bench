@@ -1,15 +1,4 @@
-"""Integration benchmark fixtures.
-
-This module keeps runnable examples close to the benchmark definitions that use
-them. The ``node_catalog_lookup`` fixture demonstrates the intended fixture
-runtime API:
-
-- use ``current_context().runtime`` instead of resolving binaries from ``PATH``
-- start ``tenzir-node`` through ``runtime.popen_tenzir_node(...)``
-- seed the node through ``runtime.run_tenzir(...)``
-
-The fixture works for both local binaries and ``docker://...`` runtimes.
-"""
+"""Node-backed example fixture using the target-agnostic runtime API."""
 
 from __future__ import annotations
 
@@ -23,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
 
-import tenzir_bench.kafka_fixture  # noqa: F401
 from tenzir_bench.fixtures import FixtureHandle, current_context, current_options, fixture
 
 _LOG = logging.getLogger(__name__)
@@ -220,12 +208,7 @@ def _stop_node(
 
 @fixture(name="node_catalog_lookup", replace=True, options=NodeCatalogLookupOptions)
 def node_catalog_lookup() -> FixtureHandle:
-    """Start a node, seed it from a synthetic dataset, and expose the lookup key.
-
-    This example fixture is meant to be read alongside
-    ``suricata-node-catalog-lookup.tql``. It keeps the setup target-agnostic by
-    using ``context.runtime`` for both ``tenzir`` and ``tenzir-node``.
-    """
+    """Start a node, seed it from a synthetic dataset, and expose the lookup key."""
 
     context = current_context()
     if context is None:

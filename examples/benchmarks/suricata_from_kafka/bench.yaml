@@ -1,0 +1,18 @@
+description: Read Suricata EVE records from Kafka via from_kafka
+tags:
+  dataset: suricata-eve
+  operator: from_kafka
+input:
+  path: suricata/eve.json
+  events: 984865
+  measure: true
+env:
+  TENZIR_CONSOLE_FORMAT: none
+fixtures:
+  - kafka:
+      topic: suricata-eve-bench
+      repetitions: 1
+runtime:
+  warmup_runs: 1
+  measurement_runs: 3
+  timeout_seconds: 900

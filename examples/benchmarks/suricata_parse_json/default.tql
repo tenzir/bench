@@ -1,0 +1,10 @@
+---
+bench:
+  id: default
+  description: Parse Suricata EVE JSON strings manually.
+---
+from_file f"{env("BENCHMARK_INPUT_PATH")}" {
+  read_lines
+}
+this = move line.parse_json()
+discard

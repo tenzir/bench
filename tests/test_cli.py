@@ -53,7 +53,7 @@ class CliTest(unittest.TestCase):
                 "--candidate",
                 "/tmp/candidate-b",
                 "--neo",
-                "examples/benchmarks/operators/suricata-parse-json.tql",
+                "examples/benchmarks/suricata_parse_json/default.tql",
             ],
         )
 
@@ -66,7 +66,7 @@ class CliTest(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            benchmarks, [Path("examples/benchmarks/operators/suricata-parse-json.tql")]
+            benchmarks, [Path("examples/benchmarks/suricata_parse_json/default.tql")]
         )
 
     def test_run_forwards_extra_tenzir_args(self) -> None:
@@ -82,7 +82,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "examples/benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/suricata_parse_json/default.tql",
                     "--validate",
                     "--verbose",
                     "--neo",
@@ -97,7 +97,7 @@ class CliTest(unittest.TestCase):
         self.assertTrue(executor_cls.call_args.kwargs["verbose"])
         self.assertEqual(
             load_contexts.call_args.kwargs["pattern"],
-            "examples/benchmarks/operators/suricata-parse-json.tql",
+            "examples/benchmarks/suricata_parse_json/default.tql",
         )
 
     def test_run_forwards_dry_run(self) -> None:
@@ -113,7 +113,7 @@ class CliTest(unittest.TestCase):
                 [
                     "run",
                     "--filter",
-                    "examples/benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/suricata_parse_json/default.tql",
                     "--dry-run",
                     "--verbose",
                 ],
@@ -198,7 +198,7 @@ class CliTest(unittest.TestCase):
                     "/tmp/base",
                     "--candidate",
                     "/tmp/candidate",
-                    "examples/benchmarks/operators/suricata-parse-json.tql",
+                    "examples/benchmarks/suricata_parse_json/default.tql",
                 ],
             )
 
