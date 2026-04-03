@@ -87,7 +87,7 @@ def resolve_runtime(paths: BenchPaths, value: str) -> TenzirRuntime:
 def runtime_from_path(path: Path) -> TenzirRuntime:
     resolved = path.resolve()
     node = resolved.with_name("tenzir-node")
-    node_path = node.resolve() if node.exists() else None
+    node_path = node if node.exists() else None
     return TenzirRuntime(
         target="static",
         source=str(resolved),

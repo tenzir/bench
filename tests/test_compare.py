@@ -15,7 +15,7 @@ from tenzir_bench.compare import (
 from tenzir_bench.executor import BenchmarkExecutor, BuildInfo, build_result_id
 from tenzir_bench.paths import BenchPaths
 from tenzir_bench.reports import Report
-from tenzir_bench.runtime import _docker_wrapper_script
+from tenzir_bench.runtime import _docker_wrapper_script, runtime_from_path
 
 
 def _ensure(path: Path) -> Path:
@@ -24,6 +24,20 @@ def _ensure(path: Path) -> Path:
 
 
 class CompareHelpersTest(unittest.TestCase):
+    def test_runtime_from_path_preserves_tenzir_node_symlink_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bindir = Path(tmpdir) / "bin"
+            bindir.mkdir(parents=True, exist_ok=True)
+            tenzir = bindir / "tenzir"
+            tenzir.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            tenzir.chmod(0o755)
+            tenzir_node = bindir / "tenzir-node"
+            tenzir_node.symlink_to(tenzir.name)
+
+            runtime = runtime_from_path(tenzir)
+
+        self.assertEqual(runtime.command_for_tenzir_node(())[0], str(tenzir_node))
+
     def test_cache_key_distinguishes_same_version_binaries(self) -> None:
         info_a = BuildInfo(version="v1.2.3", build_type="Release", path="/tmp/a/bin/tenzir")
         info_b = BuildInfo(version="v1.2.3", build_type="Release", path="/tmp/b/bin/tenzir")
