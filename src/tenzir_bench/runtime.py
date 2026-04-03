@@ -165,6 +165,7 @@ def _runtime_env(target: TargetKind, env: Mapping[str, str] | None) -> dict[str,
 def _docker_wrapper_script(image: str, paths: BenchPaths, *, executable: str = "tenzir") -> str:
     cache_dir = shlex.quote(str(paths.cache_dir))
     state_dir = shlex.quote(str(paths.state_dir))
+    logs_dir = shlex.quote(str(paths.state_dir / "logs"))
     image_ref = shlex.quote(image)
     executable_name = shlex.quote(executable)
     if executable == "tenzir":
@@ -210,6 +211,7 @@ set -euo pipefail
 IMAGE={image_ref}
 CACHE_DIR={cache_dir}
 STATE_DIR={state_dir}
+LOGS_DIR={logs_dir}
 WORK_DIR="${{PWD}}"
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -238,6 +240,8 @@ _add_volume() {{
 
 _add_volume "$CACHE_DIR" "ro"
 _add_volume "$STATE_DIR"
+mkdir -p "$LOGS_DIR"
+_add_volume "$LOGS_DIR"
 _add_volume "$WORK_DIR"
 
 declare -a workdir_args=()
@@ -250,6 +254,9 @@ if [[ -n "${{TENZIR_BENCH_FORWARD_ENV:-}}" ]]; then
     IFS=',' read -ra env_names <<< "${{TENZIR_BENCH_FORWARD_ENV}}"
 fi
 declare -a forward_envs=()
+forward_envs+=("-e" "CACHE_DIRECTORY=$CACHE_DIR")
+forward_envs+=("-e" "STATE_DIRECTORY=$STATE_DIR")
+forward_envs+=("-e" "LOGS_DIRECTORY=$LOGS_DIR")
 for name in "${{env_names[@]}}"; do
     name="${{name//[[:space:]]/}}"
     [[ -z "$name" ]] && continue

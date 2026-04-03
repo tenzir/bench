@@ -212,7 +212,12 @@ def shared_bench_fixture():
 
         self.assertEqual(
             runtime.node_calls[0][:4],
-            ["-d", str(expected_state_dir), "--endpoint=127.0.0.1:0", "--print-endpoint"],
+            [
+                "-d",
+                str(expected_state_dir),
+                "--endpoint=127.0.0.1:0",
+                "--print-endpoint",
+            ],
         )
         self.assertIn("-f", runtime.run_calls[0])
         self.assertEqual(runtime.process.wait_calls, 1)

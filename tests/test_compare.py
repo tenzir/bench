@@ -457,3 +457,6 @@ discard
         self.assertIn("--entrypoint python3", script)
         self.assertIn("tenzir-bench-maxrss=", script)
         self.assertIn("os.wait4(proc.pid, 0)", script)
+        self.assertIn('forward_envs+=("-e" "CACHE_DIRECTORY=$CACHE_DIR")', script)
+        self.assertIn('forward_envs+=("-e" "STATE_DIRECTORY=$STATE_DIR")', script)
+        self.assertIn('forward_envs+=("-e" "LOGS_DIRECTORY=$LOGS_DIR")', script)
