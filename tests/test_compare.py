@@ -413,6 +413,7 @@ discard
 
             script = _docker_wrapper_script("ghcr.io/tenzir/tenzir:test", paths)
 
+        self.assertTrue(script.startswith("#!/usr/bin/env bash\n"))
         self.assertIn(
             "docker image inspect --format '{{json .Config.Entrypoint}}' \"$IMAGE\"", script
         )

@@ -183,62 +183,61 @@ def _docker_wrapper_script(image: str, paths: BenchPaths, *, executable: str = "
             '"${volumes[@]}" "${forward_envs[@]}" "${workdir_args[@]}" '
             f'--entrypoint {executable_name} "$IMAGE" "$@"\n'
         )
-    return dedent(
-        f"""\
-        #!/usr/bin/env bash
-        set -euo pipefail
+    script = f"""\
+#!/usr/bin/env bash
+set -euo pipefail
 
-        IMAGE={image_ref}
-        CACHE_DIR={cache_dir}
-        STATE_DIR={state_dir}
-        WORK_DIR="${{PWD}}"
+IMAGE={image_ref}
+CACHE_DIR={cache_dir}
+STATE_DIR={state_dir}
+WORK_DIR="${{PWD}}"
 
-        if ! command -v docker >/dev/null 2>&1; then
-            echo "docker executable not found" >&2
-            exit 127
-        fi
+if ! command -v docker >/dev/null 2>&1; then
+    echo "docker executable not found" >&2
+    exit 127
+fi
 
-        if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-            docker pull "$IMAGE" >&2
-        fi
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    docker pull "$IMAGE" >&2
+fi
 
-        declare -a volumes=()
+declare -a volumes=()
 
-        _add_volume() {{
-            local dir="$1"
-            local mode="${{2:-}}"
-            if [[ -z "$dir" || ! -d "$dir" ]]; then
-                return
-            fi
-            local spec="${{dir}}:${{dir}}"
-            if [[ -n "$mode" ]]; then
-                spec="${{spec}}:${{mode}}"
-            fi
-            volumes+=("-v" "$spec")
-        }}
+_add_volume() {{
+    local dir="$1"
+    local mode="${{2:-}}"
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        return
+    fi
+    local spec="${{dir}}:${{dir}}"
+    if [[ -n "$mode" ]]; then
+        spec="${{spec}}:${{mode}}"
+    fi
+    volumes+=("-v" "$spec")
+}}
 
-        _add_volume "$CACHE_DIR" "ro"
-        _add_volume "$STATE_DIR"
-        _add_volume "$WORK_DIR"
+_add_volume "$CACHE_DIR" "ro"
+_add_volume "$STATE_DIR"
+_add_volume "$WORK_DIR"
 
-        declare -a workdir_args=()
-        if [[ -d "$WORK_DIR" ]]; then
-            workdir_args=("-w" "$WORK_DIR")
-        fi
+declare -a workdir_args=()
+if [[ -d "$WORK_DIR" ]]; then
+    workdir_args=("-w" "$WORK_DIR")
+fi
 
-        declare -a env_names=()
-        if [[ -n "${{TENZIR_BENCH_FORWARD_ENV:-}}" ]]; then
-            IFS=',' read -ra env_names <<< "${{TENZIR_BENCH_FORWARD_ENV}}"
-        fi
-        declare -a forward_envs=()
-        for name in "${{env_names[@]}}"; do
-            name="${{name//[[:space:]]/}}"
-            [[ -z "$name" ]] && continue
-            if [[ -n "${{!name-}}" ]]; then
-                forward_envs+=("-e" "$name")
-            fi
-        done
+declare -a env_names=()
+if [[ -n "${{TENZIR_BENCH_FORWARD_ENV:-}}" ]]; then
+    IFS=',' read -ra env_names <<< "${{TENZIR_BENCH_FORWARD_ENV}}"
+fi
+declare -a forward_envs=()
+for name in "${{env_names[@]}}"; do
+    name="${{name//[[:space:]]/}}"
+    [[ -z "$name" ]] && continue
+    if [[ -n "${{!name-}}" ]]; then
+        forward_envs+=("-e" "$name")
+    fi
+done
 
-        {run_body.rstrip()}
-        """,
-    )
+{run_body.rstrip()}
+"""
+    return script
