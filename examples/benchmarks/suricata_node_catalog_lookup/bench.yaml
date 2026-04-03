@@ -5,14 +5,14 @@ tags:
   scenario: catalog-lookup
 input:
   path: suricata-dns.seed.ndjson
-  source: ../../fixtures/node_catalog_lookup/suricata-dns.seed.ndjson
-  events: 10000
-  measure: true
+  repetitions: 10000
+  source:
+    url: ../../fixtures/node_catalog_lookup/suricata-dns.seed.ndjson
+    num_events: 1
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
   - node_catalog_lookup:
-      events: 10000
       max_partition_size: 1
       schema: suricata
       query_hit_index: 5000

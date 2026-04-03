@@ -12,8 +12,9 @@ benchmark:
   id: example
   input:
     path: suricata/eve.json
-    events: 1
-    measure: true
+    repetitions: 1
+    source:
+      num_events: 1
   fixtures:
     - kafka:
         topic: bench
@@ -41,8 +42,9 @@ benchmark:
   id: example
   input:
     path: suricata/eve.json
-    events: 1
-    measure: true
+    repetitions: 1
+    source:
+      num_events: 1
   fixture: sink
 ---
 discard
@@ -62,8 +64,9 @@ benchmark:
   id: example
   input:
     path: suricata/eve.json
-    events: 1
-    measure: true
+    repetitions: 1
+    source:
+      num_events: 1
   fixture: sink
   fixtures: [kafka]
 ---

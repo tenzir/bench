@@ -12,7 +12,7 @@ from typing import cast
 _COMMITISH_RE = re.compile(r"[0-9a-fA-F]{7,40}")
 _HEX_DIGITS = "0123456789abcdefABCDEF"
 LEGACY_REPORT_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 
 
 @dataclass

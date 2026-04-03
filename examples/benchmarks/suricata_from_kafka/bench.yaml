@@ -4,14 +4,14 @@ tags:
   operator: from_kafka
 input:
   path: suricata/eve.json
-  events: 984865
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
   - kafka:
       topic: suricata-eve-bench
-      repetitions: 1
 runtime:
   warmup_runs: 1
   measurement_runs: 3

@@ -137,8 +137,9 @@ def shared_bench_fixture():
 
         @final
         class DefinitionStub:
-            def __init__(self, path: Path) -> None:
+            def __init__(self, path: Path, *, input_repetitions: int) -> None:
                 self.path: Path = path
+                self.input_repetitions: int = input_repetitions
 
         fixture_api.load_fixture_modules(
             Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql"),
@@ -148,12 +149,20 @@ def shared_bench_fixture():
         runtime = FakeRuntime()
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
+            source_path = root / "source" / "suricata-dns.seed.ndjson"
+            source_path.parent.mkdir(parents=True, exist_ok=True)
+            source_path.write_text(
+                '{"timestamp":"2026-01-01T00:00:00.000000Z","flow_id":1,"src_port":53000,"dns":{"id":1,"rrname":"seed.example"}}\n',
+                encoding="utf-8",
+            )
             dataset_path = root / "datasets" / "suricata-dns.seed.ndjson"
             expected_state_dir = root / "output" / "node-catalog-lookup" / "state"
             context = fixture_api.FixtureContext(
                 definition=DefinitionStub(
-                    Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql")
+                    Path("examples/benchmarks/suricata_node_catalog_lookup/neo.tql"),
+                    input_repetitions=8,
                 ),
+                source_path=source_path,
                 dataset_path=dataset_path,
                 output_root=root / "output",
                 env={},
@@ -166,12 +175,19 @@ def shared_bench_fixture():
                         fixture_api.FixtureSpec(
                             name="node_catalog_lookup",
                             options={
-                                "events": 8,
                                 "query_hit_index": 3,
                             },
                         ),
                     )
                 ) as env:
+                    fixture_api.invoke_active_hook(
+                        "seed",
+                        definition=context.definition,
+                        env=dict(env),
+                        source_path=source_path,
+                        input_path=dataset_path,
+                        output_root=root / "output",
+                    )
                     self.assertEqual(env["TENZIR_ENDPOINT"], "127.0.0.1:5151")
                     self.assertEqual(env["BENCHMARK_LOOKUP_VALUE"], "bench-000003.example")
                     self.assertTrue(dataset_path.exists())

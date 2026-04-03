@@ -34,7 +34,6 @@ class KafkaFixtureOptions:
     """Configuration for the example ``kafka`` fixture."""
 
     topic: str = "tenzir-bench"
-    repetitions: int = 1
     bootstrap_servers: str = _FIXTURE_BROKERS
     partitions: int = 1
     replication_factor: int = 1
@@ -185,7 +184,6 @@ def _publish_dataset(
     service: str,
     topic: str,
     input_path: Path,
-    repetitions: int,
 ) -> None:
     process = subprocess.Popen(
         [
@@ -209,9 +207,7 @@ def _publish_dataset(
         if process.stdin is None:
             raise RuntimeError("failed to open stdin for kafka dataset publisher")
         with input_path.open("rb") as handle:
-            for _ in range(repetitions):
-                _ = handle.seek(0)
-                _ = shutil.copyfileobj(handle, process.stdin)
+            _ = shutil.copyfileobj(handle, process.stdin)
         process.stdin.close()
         stderr = process.stderr.read() if process.stderr is not None else b""
         return_code = process.wait()
@@ -241,7 +237,7 @@ def _teardown(base_args: list[str], *, cwd: Path) -> None:
 
 @fixture(name="kafka", replace=True, options=KafkaFixtureOptions)
 def kafka() -> FixtureHandle:
-    """Start Redpanda, seed the staged input once, and expose Kafka env."""
+    """Start Redpanda and expose Kafka connection details for seeding hooks."""
 
     context = current_context()
     if context is None:
@@ -249,8 +245,6 @@ def kafka() -> FixtureHandle:
     options = current_options("kafka")
     if not isinstance(options, KafkaFixtureOptions):
         raise ValueError("invalid options for fixture 'kafka'")
-    if options.repetitions <= 0:
-        raise ValueError("'kafka.repetitions' must be positive")
     if not _compose_available():
         raise FixtureUnavailable("docker compose required but not found")
 
@@ -273,23 +267,28 @@ def kafka() -> FixtureHandle:
         timeout_seconds=options.wait_timeout_seconds,
         poll_interval_seconds=options.wait_poll_interval_seconds,
     )
-    _reset_topic(
-        base_args,
-        cwd=cwd,
-        service=service,
-        topic=options.topic,
-        partitions=options.partitions,
-        replication_factor=options.replication_factor,
-    )
-    _publish_dataset(
-        base_args,
-        cwd=cwd,
-        service=service,
-        topic=options.topic,
-        input_path=context.dataset_path,
-        repetitions=options.repetitions,
-    )
     group_prefix = f"{_group_id(context.definition.path, options.topic)}-{uuid.uuid4().hex[:8]}"
+
+    def _seed(
+        *,
+        input_path: Path,
+        **_kwargs: object,
+    ) -> None:
+        _reset_topic(
+            base_args,
+            cwd=cwd,
+            service=service,
+            topic=options.topic,
+            partitions=options.partitions,
+            replication_factor=options.replication_factor,
+        )
+        _publish_dataset(
+            base_args,
+            cwd=cwd,
+            service=service,
+            topic=options.topic,
+            input_path=input_path,
+        )
 
     def _before_run(*, phase: str, run_index: int, env: dict[str, str], **_kwargs: object) -> None:
         env["BENCHMARK_KAFKA_GROUP_ID"] = f"{group_prefix}-{phase}-{run_index}"
@@ -301,5 +300,5 @@ def kafka() -> FixtureHandle:
             "BENCHMARK_KAFKA_TOPIC": options.topic,
         },
         teardown=lambda: _teardown(base_args, cwd=cwd),
-        hooks={"before_run": _before_run},
+        hooks={"seed": _seed, "before_run": _before_run},
     )

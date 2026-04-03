@@ -26,8 +26,9 @@ tags:
   scenario: import
 input:
   path: suricata/eve.json
-  events: 984865
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 fixtures:
@@ -64,10 +65,11 @@ definitions live in nearby `fixtures.py` modules and `fixtures/*.py`
 directories, including nested per-fixture subdirectories, that are auto-loaded
 from the current working directory down to the benchmark directory.
 
-Fixtures stay active for the full benchmark and may expose `before_run` and
-`after_run` hooks through `tenzir_bench.fixtures.FixtureHandle` to reset state
-between warmup and measurement runs. This is the intended way to keep sources
-like Kafka populated across repeated iterations.
+Fixtures stay active for the full benchmark and may expose `seed`,
+`before_run`, and `after_run` hooks through `tenzir_bench.fixtures.FixtureHandle`.
+The benchmark input now owns repetition and source metadata. Fixture `seed`
+hooks receive the staged benchmark input path and can load it into Kafka,
+nodes, or other external systems in a target-specific way.
 
 New fixtures should use `current_context().runtime` instead of resolving
 executables from `PATH`. The runtime already knows whether the benchmark is

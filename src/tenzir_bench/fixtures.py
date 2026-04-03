@@ -62,6 +62,7 @@ class FixtureContext:
     """Describe the benchmark context available to fixture factories."""
 
     definition: BenchmarkFixtureDefinition
+    source_path: Path
     dataset_path: Path
     output_root: Path
     env: Mapping[str, str]

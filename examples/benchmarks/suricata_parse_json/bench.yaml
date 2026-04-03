@@ -4,8 +4,9 @@ tags:
   operator: parse_json
 input:
   path: suricata/eve.json
-  events: 984865
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 984865
 env:
   TENZIR_CONSOLE_FORMAT: none
 runtime:

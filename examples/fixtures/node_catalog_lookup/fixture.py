@@ -8,6 +8,7 @@ import re
 import signal
 import subprocess
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TextIO
@@ -22,7 +23,6 @@ _ENDPOINT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+:\d+$")
 class NodeCatalogLookupOptions:
     """Configuration for the ``node_catalog_lookup`` example fixture."""
 
-    events: int = 10_000
     max_partition_size: int = 1
     schema: str = "suricata"
     query_hit_index: int = 5_000
@@ -30,48 +30,39 @@ class NodeCatalogLookupOptions:
     shutdown_timeout_seconds: float = 20.0
 
 
-def _suricata_dns_event(index: int) -> dict[str, object]:
+def _load_seed_event(path: Path) -> dict[str, object]:
+    line = path.read_text(encoding="utf-8").splitlines()[0]
+    payload = json.loads(line)
+    if not isinstance(payload, dict):
+        raise ValueError(f"seed dataset must start with a JSON object: {path}")
+    return payload
+
+
+def _suricata_dns_event(seed: dict[str, object], index: int) -> dict[str, object]:
     value = f"bench-{index:06}.example"
-    return {
-        "timestamp": "2026-01-01T00:00:00.000000Z",
-        "flow_id": index + 1,
-        "src_ip": "10.0.0.1",
-        "src_port": 53_000 + (index % 1_000),
-        "dest_ip": "10.0.0.53",
-        "dest_port": 53,
-        "proto": "UDP",
-        "event_type": "dns",
-        "dns": {
-            "version": 2,
-            "type": "query",
-            "id": index + 1,
-            "flags": "0120",
-            "qr": False,
-            "rd": True,
-            "ra": False,
-            "aa": False,
-            "tc": False,
-            "rrname": value,
-            "rrtype": "A",
-            "rcode": "NOERROR",
-            "ttl": None,
-            "tx_id": None,
-            "grouped": None,
-            "answers": None,
-        },
-    }
+    event = deepcopy(seed)
+    event["flow_id"] = index + 1
+    event["src_port"] = 53_000 + (index % 1_000)
+    dns = deepcopy(event.get("dns", {}))
+    if not isinstance(dns, dict):
+        dns = {}
+    dns["id"] = index + 1
+    dns["rrname"] = value
+    event["dns"] = dns
+    return event
 
 
-def _write_dataset(path: Path, events: int, query_hit_index: int) -> str:
+def _write_dataset(path: Path, seed_path: Path, events: int, query_hit_index: int) -> str:
     if events <= 0:
-        raise ValueError("'node_catalog_lookup.events' must be positive")
+        raise ValueError("'benchmark.input.repetitions' must be positive")
     if query_hit_index < 0 or query_hit_index >= events:
         raise ValueError("'node_catalog_lookup.query_hit_index' must refer to a generated event")
+    seed = _load_seed_event(seed_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _LOG.info("Materializing %s synthetic Suricata DNS events at %s", f"{events:,}", path)
     with path.open("w", encoding="utf-8") as handle:
         for index in range(events):
-            handle.write(json.dumps(_suricata_dns_event(index), separators=(",", ":")))
+            handle.write(json.dumps(_suricata_dns_event(seed, index), separators=(",", ":")))
             handle.write("\n")
     return f"bench-{query_hit_index:06}.example"
 
@@ -208,7 +199,7 @@ def _stop_node(
 
 @fixture(name="node_catalog_lookup", replace=True, options=NodeCatalogLookupOptions)
 def node_catalog_lookup() -> FixtureHandle:
-    """Start a node, seed it from a synthetic dataset, and expose the lookup key."""
+    """Start a node and seed it from the benchmark input through a seed hook."""
 
     context = current_context()
     if context is None:
@@ -218,29 +209,35 @@ def node_catalog_lookup() -> FixtureHandle:
         raise ValueError("invalid options for fixture 'node_catalog_lookup'")
 
     benchmark_root = context.output_root / "node-catalog-lookup"
-    dataset_path = context.dataset_path
     state_dir = benchmark_root / "state"
     import_pipeline_path = benchmark_root / "seed.tql"
     log_path = benchmark_root / "logs" / "node.log"
-    query_value = _write_dataset(dataset_path, options.events, options.query_hit_index)
+    events = context.definition.input_repetitions
+    query_value = f"bench-{options.query_hit_index:06}.example"
+    if options.query_hit_index >= events:
+        raise ValueError("'node_catalog_lookup.query_hit_index' must refer to a generated event")
     process, log_handle, endpoint = _start_node(
         state_dir=state_dir,
         log_path=log_path,
         max_partition_size=options.max_partition_size,
         startup_timeout_seconds=options.startup_timeout_seconds,
     )
-    try:
+
+    def _seed(*, source_path: Path, input_path: Path, **_kwargs: object) -> None:
+        _ = _write_dataset(
+            input_path,
+            source_path,
+            context.definition.input_repetitions,
+            options.query_hit_index,
+        )
         _seed_node(
             endpoint=endpoint,
             state_dir=state_dir,
-            dataset_path=dataset_path,
+            dataset_path=input_path,
             schema=options.schema,
             pipeline_path=import_pipeline_path,
         )
-    except Exception:
-        _stop_node(process, shutdown_timeout_seconds=options.shutdown_timeout_seconds)
-        log_handle.close()
-        raise
+
     return FixtureHandle(
         env={
             "TENZIR_ENDPOINT": endpoint,
@@ -251,6 +248,7 @@ def node_catalog_lookup() -> FixtureHandle:
             log_handle=log_handle,
             shutdown_timeout_seconds=options.shutdown_timeout_seconds,
         ),
+        hooks={"seed": _seed},
     )
 
 

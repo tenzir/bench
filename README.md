@@ -30,7 +30,7 @@ uvx tenzir-bench run --tenzir-bin /path/to/tenzir --benchmark from_kafka_route53
 The command auto-detects the repo root by looking for a checkout that contains
 `bench/`, starting from the current directory and then from the `--tenzir-bin`
 path. It discovers benchmarks under `bench/`, automatically stages any
-repo-local `input.source` files into the cache, activates declared fixtures,
+repo-local `input.source.url` files into the cache, activates declared fixtures,
 and records per-run JSON reports under the state directory (for example,
 `~/.local/state/tenzir-bench/results`).
 
@@ -171,12 +171,12 @@ benchmark:
   max_version: "6.0.0"               # Maximum Tenzir version allowed (optional)
   input:                             # Input dataset configuration (required)
     path: suricata/eve.json          # Relative to the managed dataset cache unless absolute
-    source: ../../test/tests/...     # Optional repo-local path or HTTP(S) URL copied into the cache automatically
-    events: 984865                   # Optional record count for throughput stats
-    measure: true                    # Use input bytes for throughput (boolean)
+    repetitions: 1                   # Optional repetition count applied to the staged benchmark input
+    source:                          # Optional source metadata for staging and throughput stats
+      url: ../../test/tests/...      # Optional repo-local path or HTTP(S) URL copied into the cache automatically
+      num_events: 984865             # Optional record count for one source copy
   output:                            # Optional output measurement settings
     path: tmp/eve-out.json           # Relative to working directory
-    measure: false                   # Measure output bytes (input measure must be false)
   env:                               # Extra environment variables for the run (optional)
     TENZIR_CONSOLE_FORMAT: none
   fixtures:                          # Optional fixture specs (same shapes as tenzir/test)
@@ -220,21 +220,23 @@ class KafkaOptions:
 def kafka_fixture():
     options = current_options("kafka")
 
-    def before_run(*, phase, run_index, **_kwargs):
-        # Re-seed the topic before every warmup/measurement run.
+    def seed(*, input_path, **_kwargs):
+        # Load the staged benchmark input into Kafka once per benchmark run.
         ...
 
     return FixtureHandle(
         env={"KAFKA_TOPIC": options.topic},
-        hooks={"before_run": before_run},
+        hooks={"seed": seed},
     )
 ```
 
 Fixtures stay active for the full benchmark execution and may expose
-`before_run` / `after_run` hooks to reset state between warmup and measurement
-iterations. Fixture-provided environment variables are merged into the benchmark
-environment and forwarded automatically when the benchmark runs inside a Docker
-wrapper via `bench compare`.
+`seed`, `before_run`, and `after_run` hooks. The `seed` hook is the place to
+load the benchmark input into Kafka, nodes, or other external systems. The
+benchmark-level `input.repetitions` setting controls how many times the staged
+input is repeated before any fixture seeding happens. Fixture-provided
+environment variables are merged into the benchmark environment and forwarded
+automatically when the benchmark runs inside a Docker wrapper via `bench compare`.
 
 This repository now ships three runnable examples under `examples/`:
 

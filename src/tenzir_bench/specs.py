@@ -13,6 +13,7 @@ from tenzir_bench.definitions import (
     BenchmarkDefinition,
     BenchmarkError,
     BenchmarkRuntime,
+    parse_input_source,
     parse_fixture_specs,
     split_frontmatter,
 )
@@ -252,24 +253,21 @@ def _parse_spec_implementation(
     )
     input_section = _require_mapping(metadata.get("input"), path, "input")
     input_path = _require_str(input_section, "path", path, prefix="input")
-    input_source = _optional_str(input_section, "source", path, prefix="input")
-    input_events = input_section.get("events")
-    if input_events is not None and not isinstance(input_events, int):
-        raise BenchmarkError(f"{path}: input.events must be an integer")
-    input_measure = bool(input_section.get("measure", True))
+    input_source_url, input_source_num_events = parse_input_source(
+        input_section,
+        path,
+        prefix="input",
+    )
+    input_repetitions = input_section.get("repetitions", 1)
+    if not isinstance(input_repetitions, int) or input_repetitions <= 0:
+        raise BenchmarkError(f"{path}: input.repetitions must be a positive integer")
     output_section = metadata.get("output")
     output_path: str | None = None
-    output_measure = False
     if output_section is not None:
         output_section = _require_mapping(output_section, path, "output")
         output_path = _optional_str(output_section, "path", path, prefix="output")
-        output_measure = bool(output_section.get("measure", False))
-    if input_measure and output_measure:
-        raise BenchmarkError(f"{path}: only one of input.measure or output.measure can be true")
-    if not input_measure and not output_measure:
-        raise BenchmarkError(f"{path}: one of input.measure or output.measure must be true")
-    if output_measure and output_path is None:
-        raise BenchmarkError(f"{path}: output.path is required when output.measure is true")
+    if output_section is not None and output_path is None:
+        raise BenchmarkError(f"{path}: output.path must be a string")
     env = _parse_mapping_str(metadata.get("env") or {}, path, "bench.yaml env")
     fixtures = parse_fixture_specs(metadata, path)
     runner = metadata.get("runner", "time")
@@ -287,11 +285,10 @@ def _parse_spec_implementation(
         min_version=min_version,
         max_version=max_version,
         input_path=input_path,
-        input_source=input_source,
-        input_events=input_events,
-        input_measure=input_measure,
+        input_source_url=input_source_url,
+        input_source_num_events=input_source_num_events,
+        input_repetitions=input_repetitions,
         output_path=output_path,
-        output_measure=output_measure,
         env=env,
         fixtures=fixtures,
         tenzir_args=tenzir_args,

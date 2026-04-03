@@ -11,16 +11,23 @@ from tenzir_bench.runtime import runtime_from_path
 
 
 class KafkaFixtureTest(unittest.TestCase):
-    def test_kafka_fixture_starts_compose_and_reseeds_topic(self) -> None:
+    def test_kafka_fixture_starts_compose_and_seeds_topic(self) -> None:
         commands: list[list[str]] = []
         published_payloads: list[bytes] = []
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             benchmark_path = Path("examples/benchmarks/suricata_from_kafka/default.tql")
-            dataset = root / "suricata-eve.json"
-            _ = dataset.write_text(
-                '{"event_type":"flow"}\n{"event_type":"dns"}\n', encoding="utf-8"
+            source_dataset = root / "suricata-eve.json"
+            payload = '{"event_type":"flow"}\n{"event_type":"dns"}\n'
+            _ = source_dataset.write_text(
+                payload,
+                encoding="utf-8",
+            )
+            repeated_dataset = root / "suricata-eve.x5.json"
+            _ = repeated_dataset.write_text(
+                payload * 5,
+                encoding="utf-8",
             )
             definition = BenchmarkDefinition(
                 path=benchmark_path,
@@ -30,16 +37,15 @@ class KafkaFixtureTest(unittest.TestCase):
                 min_version=None,
                 max_version=None,
                 input_path="suricata/eve.json",
-                input_source=None,
-                input_events=2,
-                input_measure=True,
+                input_source_url=None,
+                input_source_num_events=2,
+                input_repetitions=5,
                 output_path=None,
-                output_measure=False,
                 env={},
                 fixtures=(
                     fixture_api.FixtureSpec(
                         name="kafka",
-                        options={"topic": "bench", "repetitions": 5},
+                        options={"topic": "bench"},
                     ),
                 ),
                 tenzir_args=[],
@@ -109,7 +115,8 @@ class KafkaFixtureTest(unittest.TestCase):
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
                     definition=definition,
-                    dataset_path=dataset,
+                    source_path=source_dataset,
+                    dataset_path=repeated_dataset,
                     output_root=root / "out",
                     env={},
                     runtime=runtime_from_path(root / "bin" / "tenzir"),
@@ -124,13 +131,21 @@ class KafkaFixtureTest(unittest.TestCase):
                     patch("time.sleep"),
                     fixture_api.activate(definition.fixtures) as env,
                 ):
+                    fixture_api.invoke_active_hook(
+                        "seed",
+                        definition=definition,
+                        env=dict(env),
+                        source_path=source_dataset,
+                        input_path=repeated_dataset,
+                        output_root=root / "out",
+                    )
                     self.assertEqual(env["BENCHMARK_KAFKA_BOOTSTRAP_SERVERS"], "127.0.0.1:9092")
                     self.assertEqual(env["BENCHMARK_KAFKA_TOPIC"], "bench")
                     self.assertTrue(env["BENCHMARK_KAFKA_GROUP_ID"].startswith("tenzir-bench-"))
                     hook_env = dict(env)
                     fixture_api.invoke_active_hook(
                         "before_run",
-                        input_path=dataset,
+                        input_path=repeated_dataset,
                         output_path=None,
                         phase="measurement",
                         run_index=0,
@@ -187,11 +202,10 @@ class KafkaFixtureTest(unittest.TestCase):
                 min_version=None,
                 max_version=None,
                 input_path="suricata/eve.json",
-                input_source=None,
-                input_events=2,
-                input_measure=True,
+                input_source_url=None,
+                input_source_num_events=2,
+                input_repetitions=1,
                 output_path=None,
-                output_measure=False,
                 env={},
                 fixtures=(
                     fixture_api.FixtureSpec(
@@ -207,6 +221,7 @@ class KafkaFixtureTest(unittest.TestCase):
             token = fixture_api.push_context(
                 fixture_api.FixtureContext(
                     definition=definition,
+                    source_path=root / "input.json",
                     dataset_path=root / "input.json",
                     output_root=root / "out",
                     env={},

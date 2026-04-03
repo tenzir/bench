@@ -65,9 +65,7 @@ class CliTest(unittest.TestCase):
                 ("/tmp/candidate-b", False, ("--neo",)),
             ],
         )
-        self.assertEqual(
-            benchmarks, [Path("examples/benchmarks/suricata_parse_json/default.tql")]
-        )
+        self.assertEqual(benchmarks, [Path("examples/benchmarks/suricata_parse_json/default.tql")])
 
     def test_run_forwards_extra_tenzir_args(self) -> None:
         cli_runner = CliRunner()

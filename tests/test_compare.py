@@ -76,8 +76,9 @@ benchmark:
   id: example
   input:
     path: suricata/eve.json
-    events: 1
-    measure: true
+    repetitions: 1
+    source:
+      num_events: 1
 ---
 discard
 """,
@@ -121,8 +122,9 @@ discard
                 """name: json_parse
 input:
   path: suricata/eve.json
-  events: 1
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 1
 """,
                 encoding="utf-8",
             )

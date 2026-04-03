@@ -34,6 +34,7 @@ _LOG = logging.getLogger(__name__)
 @dataclass
 class BenchmarkContext:
     definition: BenchmarkDefinition
+    source_path: Path
     dataset_path: Path
     benchmark_hash: str
     input_hash: str
@@ -89,12 +90,13 @@ class BenchmarkExecutor:
                 yield context
 
     def create_context(self, definition: BenchmarkDefinition) -> BenchmarkContext | None:
-        dataset = self._ensure_dataset(definition)
+        source, dataset = self._ensure_dataset(definition)
         if not dataset.exists():
             _LOG.error("Dataset missing for %s: %s", definition.id, dataset)
             return None
         return BenchmarkContext(
             definition=definition,
+            source_path=source,
             dataset_path=dataset,
             benchmark_hash=hash_benchmark(definition),
             input_hash=hash_file(dataset),
@@ -102,22 +104,28 @@ class BenchmarkExecutor:
             runtime=self.runtime,
         )
 
-    def _ensure_dataset(self, definition: BenchmarkDefinition) -> Path:
+    def _ensure_dataset(self, definition: BenchmarkDefinition) -> tuple[Path, Path]:
         input_path = Path(definition.input_path).expanduser()
         if input_path.is_absolute():
-            return input_path.resolve()
-        dataset = (self.paths.datasets_cache_dir / input_path).resolve()
-        if dataset.exists():
+            source = input_path.resolve()
+        else:
+            source = (self.paths.datasets_cache_dir / input_path).resolve()
+            if not source.exists():
+                local_input = (definition.path.parent / input_path).resolve()
+                if local_input.exists():
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    _ = shutil.copy2(local_input, source)
+                elif definition.input_source_url is not None:
+                    source.parent.mkdir(parents=True, exist_ok=True)
+                    source = self._materialize_input_source(definition, source)
+        dataset = self._stage_dataset_repetitions(definition, source)
+        return source, dataset
+
+    def _materialize_input_source(self, definition: BenchmarkDefinition, dataset: Path) -> Path:
+        source_value = definition.input_source_url
+        if source_value is None:
             return dataset
-        local_input = (definition.path.parent / input_path).resolve()
-        if local_input.exists():
-            dataset.parent.mkdir(parents=True, exist_ok=True)
-            _ = shutil.copy2(local_input, dataset)
-            return dataset
-        if definition.input_source is None:
-            return dataset
-        dataset.parent.mkdir(parents=True, exist_ok=True)
-        source_value = definition.input_source.strip()
+        source_value = source_value.strip()
         parsed = urllib.parse.urlparse(source_value)
         if parsed.scheme in {"http", "https"}:
             request = urllib.request.Request(
@@ -139,6 +147,37 @@ class BenchmarkExecutor:
             return dataset
         _ = shutil.copy2(source, dataset)
         return dataset
+
+    def _stage_dataset_repetitions(self, definition: BenchmarkDefinition, source: Path) -> Path:
+        if definition.input_repetitions == 1:
+            return source
+        repeated = self._repeated_dataset_path(definition, source)
+        if repeated.exists():
+            return repeated
+        repeated.parent.mkdir(parents=True, exist_ok=True)
+        with source.open("rb") as src, repeated.open("wb") as dst:
+            for _ in range(definition.input_repetitions):
+                _ = src.seek(0)
+                shutil.copyfileobj(src, dst)
+        return repeated
+
+    def _repeated_dataset_path(self, definition: BenchmarkDefinition, source: Path) -> Path:
+        input_path = Path(definition.input_path)
+        if not input_path.is_absolute():
+            return (
+                self.paths.datasets_cache_dir
+                / "_repeated"
+                / str(definition.input_repetitions)
+                / input_path
+            ).resolve()
+        digest = hashlib.sha256(str(source).encode("utf-8")).hexdigest()[:12]
+        return (
+            self.paths.datasets_cache_dir
+            / "_repeated"
+            / str(definition.input_repetitions)
+            / digest
+            / source.name
+        ).resolve()
 
     def prepare_progress(self, contexts: Sequence[BenchmarkContext]) -> None:
         total = sum(
@@ -461,6 +500,7 @@ def _benchmark_runtime_env(
     token = fixture_api.push_context(
         fixture_api.FixtureContext(
             definition=context.definition,
+            source_path=context.source_path,
             dataset_path=context.dataset_path,
             output_root=output_root,
             env=dict(env),
@@ -472,6 +512,14 @@ def _benchmark_runtime_env(
             merged = dict(env)
             merged.update(fixture_env)
             _refresh_forwarded_env(merged)
+            fixture_api.invoke_active_hook(
+                "seed",
+                definition=context.definition,
+                env=merged,
+                source_path=context.source_path,
+                input_path=context.dataset_path,
+                output_root=output_root,
+            )
             yield merged
     finally:
         fixture_api.pop_context(token)
@@ -533,7 +581,7 @@ def _run_once(
     if not store_result:
         return None
     output_bytes = output_file.stat().st_size if output_file and output_file.exists() else 0
-    input_bytes = input_path.stat().st_size if definition.input_measure else output_bytes
+    input_bytes = input_path.stat().st_size
     timestamp = datetime.now(UTC)
     runtime: dict[str, float | int] = {
         "wall_clock": metrics.wall_clock,
@@ -543,9 +591,12 @@ def _run_once(
         "exit_code": 0,
     }
     throughput: dict[str, float | int] = {
-        "bytes_total_processed": input_bytes,
-        "bytes_per_second": metrics.bytes_per_second(input_bytes),
+        "input_bytes_total_processed": input_bytes,
+        "input_bytes_per_second": metrics.bytes_per_second(input_bytes),
     }
+    if output_file is not None:
+        throughput["output_bytes_total_processed"] = output_bytes
+        throughput["output_bytes_per_second"] = metrics.bytes_per_second(output_bytes)
     if definition.input_events is not None and metrics.wall_clock:
         throughput["records_total_processed"] = definition.input_events
         throughput["records_per_second"] = definition.input_events / metrics.wall_clock
@@ -582,7 +633,6 @@ def _run_once(
             "path": str(input_path),
             "bytes": input_path.stat().st_size,
             "records": definition.input_events,
-            "measure": "input" if definition.input_measure else "output",
         },
         "runner": definition.runner,
         "runtime": runtime,
@@ -592,7 +642,7 @@ def _run_once(
             "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
         },
     }
-    if definition.output_measure:
+    if output_file is not None:
         report["output"] = {
             "path": str(output_file) if output_file else None,
             "bytes": output_bytes,

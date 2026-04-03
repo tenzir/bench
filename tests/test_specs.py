@@ -15,8 +15,9 @@ class SpecsTest(unittest.TestCase):
                 """description: Parse Suricata events
 input:
   path: suricata/eve.json
-  events: 1
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -36,7 +37,9 @@ discard
                 root=root,
             )
 
-        self.assertEqual([definition.id for definition in definitions], ["suricata_parse_json/default"])
+        self.assertEqual(
+            [definition.id for definition in definitions], ["suricata_parse_json/default"]
+        )
 
     def test_discover_definitions_loads_defaults_and_filters_by_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -50,9 +53,10 @@ discard
 description: Kafka ingest
 input:
   path: suricata/eve.json
-  source: ../../fixtures/eve.json
-  events: 1
-  measure: true
+  repetitions: 1
+  source:
+    url: ../../fixtures/eve.json
+    num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -100,8 +104,9 @@ discard
                 """name: json_parse
 input:
   path: suricata/eve.json
-  events: 1
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 1
 """,
                 encoding="utf-8",
             )
@@ -148,8 +153,9 @@ discard
                     """name: example
 input:
   path: suricata/eve.json
-  events: 1
-  measure: true
+  repetitions: 1
+  source:
+    num_events: 1
 """,
                     encoding="utf-8",
                 )
