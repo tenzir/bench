@@ -25,9 +25,10 @@ dependencies = [
 tenzir-bench = "tenzir_bench.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/tenzir/tenzir"
-Source = "https://github.com/tenzir/bench"
-Issues = "https://github.com/tenzir/bench/issues"
+Homepage = "https://github.com/tenzir/bench"
+Repository = "https://github.com/tenzir/bench"
+"Bug Tracker" = "https://github.com/tenzir/bench/issues"
+Documentation = "https://github.com/tenzir/bench/tree/main/docs"
 
 [dependency-groups]
 dev = [
