@@ -1,6 +1,6 @@
 # 🏁 tenzir-bench
 
-`tenzir-bench` measures the performance of realistic
+`tenzir-bench` measures the performance of
 [Tenzir](https://github.com/tenzir/tenzir) pipelines. It runs repeatable
 benchmarks against local binaries or container images and records results for
 comparison across builds and releases.
