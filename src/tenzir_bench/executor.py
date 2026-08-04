@@ -234,18 +234,34 @@ class BenchmarkExecutor:
     ) -> Path:
         contexts = list(contexts)
         build = self.build_info()
-        if not force:
-            collected = self._collect_cached_reports(contexts, build)
-            if collected:
+        reports: list[tuple[BenchmarkContext, Path]] = []
+        pending: list[BenchmarkContext] = []
+        if force:
+            pending = contexts
+        else:
+            # Resolve the cache per context: a hit for one benchmark must not
+            # suppress execution of the others.
+            for context in contexts:
+                cached = self._collect_cached_reports([context], build)
+                if cached:
+                    reports.extend(cached)
+                else:
+                    pending.append(context)
+            if reports and not pending:
                 _LOG.info("Reusing cached reports from state cache for %s", self.runtime.source)
-                return self._stage_reports(output_dir, build, collected)
-        reports_generated: list[tuple[BenchmarkContext, Path]] = []
-        if contexts:
-            self.prepare_progress(contexts)
-        for context in contexts:
+            elif reports:
+                _LOG.info(
+                    "Reusing %d cached report(s) from state cache for %s, running %d benchmark(s)",
+                    len(reports),
+                    self.runtime.source,
+                    len(pending),
+                )
+        if pending:
+            self.prepare_progress(pending)
+        for context in pending:
             generated = self.execute(context)
-            reports_generated.extend((context, report) for report in generated)
-        return self._stage_reports(output_dir, build, reports_generated)
+            reports.extend((context, report) for report in generated)
+        return self._stage_reports(output_dir, build, reports)
 
     def execute(self, context: BenchmarkContext) -> list[Path]:
         if self.dry_run:

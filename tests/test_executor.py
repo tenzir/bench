@@ -2,7 +2,7 @@ import io
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
@@ -477,3 +477,75 @@ class ExecutorTest(unittest.TestCase):
         output = stdout.getvalue()
         self.assertIn("BENCHMARK_INPUT_PATH=", output)
         self.assertNotIn("explode-dry-run", output)
+
+
+class EnsureReportsCacheTests(unittest.TestCase):
+    def test_partial_cache_still_executes_missing_contexts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+            dataset = paths.datasets_cache_dir / "suricata" / "eve.json"
+            dataset.parent.mkdir(parents=True, exist_ok=True)
+            dataset.write_text('{"event_type":"flow"}\n', encoding="utf-8")
+            executor = BenchmarkExecutor(
+                paths,
+                Path("/tmp/tenzir-link"),
+                RunnerRegistry([FakeRunner()]),
+            )
+
+            def _variant(variant_id: str, args: list[str]) -> BenchmarkDefinition:
+                definition = _single_input_definition(
+                    path=Path("examples/benchmarks/operators/example.tql"),
+                    benchmark_id="example-benchmark",
+                    input_path="suricata/eve.json",
+                    input_source_url=None,
+                    input_source_num_events=1,
+                    input_repetitions=1,
+                    runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+                )
+                return replace(
+                    definition,
+                    id=f"example-benchmark/impl/{variant_id}",
+                    implementation_id=f"impl/{variant_id}",
+                    variant_id=variant_id,
+                    tenzir_args=args,
+                )
+
+            build = BuildInfo("v1.2.3", "Release", "/tmp/tenzir")
+            with patch("tenzir_bench.executor._detect_build", return_value=build):
+                cached_context = executor.create_context(_variant("p1", ["--parallelism", "1"]))
+                fresh_context = executor.create_context(_variant("p8", ["--parallelism", "8"]))
+                assert cached_context is not None
+                assert fresh_context is not None
+                self.assertNotEqual(cached_context.benchmark_hash, fresh_context.benchmark_hash)
+                # Seed the state cache for p1 only.
+                cached_dir = executor._result_dir(cached_context, build)  # pyright: ignore[reportPrivateUsage]
+                cached_dir.mkdir(parents=True, exist_ok=True)
+                (cached_dir / "p1.json").write_text("{}", encoding="utf-8")
+                generated = root / "generated" / "p8.json"
+                generated.parent.mkdir(parents=True, exist_ok=True)
+                generated.write_text("{}", encoding="utf-8")
+                output_dir = root / "staged"
+
+                with patch.object(executor, "execute", return_value=[generated]) as execute:
+                    staged_dir = executor.ensure_reports(
+                        (cached_context, fresh_context), output_dir, force=False
+                    )
+
+                # The p1 cache hit must not suppress execution of p8.
+                execute.assert_called_once_with(fresh_context)
+                for context, name in ((cached_context, "p1.json"), (fresh_context, "p8.json")):
+                    expected = (
+                        staged_dir
+                        / context.benchmark_hash
+                        / context.input_hash
+                        / "v1.2.3"
+                        / context.definition.runner
+                        / name
+                    )
+                    self.assertTrue(expected.exists(), f"missing staged report {name}")
