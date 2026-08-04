@@ -367,6 +367,91 @@ discard
                         root=root,
                     )
 
+    def test_variant_fields_reject_falsey_values(self) -> None:
+        cases = (
+            ("tenzir_args", "false"),
+            ("tenzir_args", '""'),
+            ("env", "false"),
+            ("env", '""'),
+            ("tags", "false"),
+            ("tags", '""'),
+        )
+        for field, malformed in cases:
+            with (
+                self.subTest(field=field, malformed=malformed),
+                tempfile.TemporaryDirectory() as tmpdir,
+            ):
+                root = Path(tmpdir)
+                suite = root / "bench" / "benchmarks" / "x"
+                suite.mkdir(parents=True)
+                (suite / "bench.yaml").write_text(
+                    f"""name: x
+variants:
+  p1:
+    {field}: {malformed}
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                    encoding="utf-8",
+                )
+                (suite / "neo.tql").write_text(
+                    """---
+bench:
+  id: neo
+---
+discard
+""",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(BenchmarkError):
+                    _ = load_definitions_from_paths(
+                        [suite],
+                        version_supplier=lambda: "v6.9.0",
+                        root=root,
+                    )
+
+    def test_variant_fields_accept_null_shorthand(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = root / "bench" / "benchmarks" / "x"
+            suite.mkdir(parents=True)
+            (suite / "bench.yaml").write_text(
+                """name: x
+variants:
+  p1:
+    tenzir_args:
+    env:
+    tags:
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                encoding="utf-8",
+            )
+            (suite / "neo.tql").write_text(
+                """---
+bench:
+  id: neo
+  tenzir_args: ["--neo"]
+---
+discard
+""",
+                encoding="utf-8",
+            )
+            definitions = load_definitions_from_paths(
+                [suite],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+            )
+        self.assertEqual([definition.id for definition in definitions], ["x/neo/p1"])
+        self.assertEqual(definitions[0].tenzir_args, ["--neo"])
+        self.assertEqual(definitions[0].env, {})
+
     def test_variant_options_accept_null_shorthand(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

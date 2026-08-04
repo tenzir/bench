@@ -377,19 +377,32 @@ def _parse_variants(value: object, path: Path, label: str) -> list[Variant] | No
         if unknown:
             keys = ", ".join(sorted(unknown))
             raise BenchmarkError(f"{path}: {label}.{variant_id} has unknown keys: {keys}")
+        # Default only for an absent or null key, so that a falsey typo such as
+        # `tenzir_args: false` reaches the field parser and is rejected there.
+        raw_args = options.get("tenzir_args")
+        raw_env = options.get("env")
+        raw_tags = options.get("tags")
         variants.append(
             Variant(
                 id=variant_id,
                 description=_optional_str(options, "description", path, prefix=label),
                 tenzir_args=tuple(
                     _parse_string_list(
-                        options.get("tenzir_args") or [],
+                        [] if raw_args is None else raw_args,
                         path,
                         f"{label}.{variant_id}.tenzir_args",
                     )
                 ),
-                env=_parse_mapping_str(options.get("env") or {}, path, f"{label}.{variant_id}.env"),
-                tags=_parse_tags(options.get("tags") or {}, path, f"{label}.{variant_id}.tags"),
+                env=_parse_mapping_str(
+                    {} if raw_env is None else raw_env,
+                    path,
+                    f"{label}.{variant_id}.env",
+                ),
+                tags=_parse_tags(
+                    {} if raw_tags is None else raw_tags,
+                    path,
+                    f"{label}.{variant_id}.tags",
+                ),
                 min_version=_optional_str(options, "min_version", path, prefix=label),
                 max_version=_optional_str(options, "max_version", path, prefix=label),
             )
