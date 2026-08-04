@@ -1,7 +1,10 @@
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
+from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
+from tenzir_bench.hashing import hash_benchmark
 from tenzir_bench.specs import discover_definitions, load_definitions_from_paths
 
 
@@ -329,3 +332,53 @@ discard
             )
         self.assertEqual([definition.id for definition in definitions], ["x/neo/own"])
         self.assertEqual(definitions[0].tenzir_args, ["--own"])
+
+    def test_variant_identity_changes_the_benchmark_hash(self) -> None:
+        base = BenchmarkDefinition(
+            path=Path("examples/benchmarks/x/neo.tql"),
+            id="x/neo",
+            description=None,
+            tags={},
+            min_version=None,
+            max_version=None,
+            inputs={},
+            output_path=None,
+            env={},
+            fixtures=(),
+            tenzir_args=["--neo"],
+            runner="time",
+            runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+            pipeline_body="discard",
+            benchmark_id="x",
+            implementation_id="neo",
+        )
+        p1 = replace(base, id="x/neo/p1", implementation_id="neo/p1", variant_id="p1")
+        p2 = replace(base, id="x/neo/p2", implementation_id="neo/p2", variant_id="p2")
+        # A variant with identical execution settings must not reuse the
+        # unvarianted result directory, nor collide with a sibling variant.
+        self.assertNotEqual(hash_benchmark(base), hash_benchmark(p1))
+        self.assertNotEqual(hash_benchmark(p1), hash_benchmark(p2))
+
+    def test_benchmark_hash_is_stable_without_variants(self) -> None:
+        definition = BenchmarkDefinition(
+            path=Path("examples/benchmarks/x/neo.tql"),
+            id="x/neo",
+            description=None,
+            tags={},
+            min_version=None,
+            max_version=None,
+            inputs={},
+            output_path=None,
+            env={},
+            fixtures=(),
+            tenzir_args=["--neo"],
+            runner="time",
+            runtime=BenchmarkRuntime(warmup_runs=0, measurement_runs=1, timeout_seconds=10),
+            pipeline_body="discard",
+            benchmark_id="x",
+            implementation_id="neo",
+        )
+        self.assertEqual(
+            hash_benchmark(definition),
+            "dc5130b0ec1a26fee228159fc0a4afc2dc4a870aadb9b0bafb7e6c5c1693c4ac",
+        )

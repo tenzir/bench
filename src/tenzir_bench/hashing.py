@@ -36,6 +36,9 @@ def hash_benchmark(defn: BenchmarkDefinition) -> str:
     for arg in defn.tenzir_args:
         hasher.update(b"arg\0" + arg.encode("utf-8"))
     hasher.update(b"runner\0" + defn.runner.encode("utf-8"))
+    # Appended only when set, so hashes of pre-variant definitions stay stable.
+    if defn.variant_id is not None:
+        hasher.update(b"variant\0" + defn.variant_id.encode("utf-8"))
     return hasher.hexdigest()
 
 
