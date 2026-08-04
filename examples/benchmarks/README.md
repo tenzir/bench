@@ -56,6 +56,48 @@ bench:
 ---
 ```
 
+## Variants
+
+A variant runs the same implementation file again with different Tenzir
+arguments. Use variants when the pipeline body is identical and only the
+engine configuration changes, such as a parallelism degree:
+
+```yaml
+---
+bench:
+  id: neo
+  tenzir_args:
+    - --neo
+  variants:
+    p1:
+      tenzir_args: ["--parallelism", "1"]
+    p8:
+      description: Parallelism degree 8.
+      tenzir_args: ["--parallelism", "8"]
+      tags:
+        degree: "8"
+---
+```
+
+Each variant becomes its own definition with the implementation id
+`<implementation>/<variant>`, for example `parallel_cpu_bound/neo/p8`. Variant
+`tenzir_args` append to the implementation's arguments, while `env` and `tags`
+merge over the shared values. A variant may also override `description`,
+`min_version`, and `max_version`.
+
+Declaring `variants:` in `bench.yaml` applies them to every implementation of
+the benchmark. An implementation that declares its own `variants:` overrides
+the shared set.
+
+Select variants on the command line with `--variant`, which accepts globs and
+can be repeated:
+
+```sh
+tenzir-bench run --tenzir ./build/bin/tenzir --variant p1
+tenzir-bench compare --base ./base/bin/tenzir --candidate ./cand/bin/tenzir \
+  --variant 'p*' bench/benchmarks/parallel_cpu_bound
+```
+
 The harness injects one environment variable per named input in the form
 `BENCHMARK_INPUT_<INPUT_NAME>_PATH`. Single-input benchmarks also get the
 compatibility alias `BENCHMARK_INPUT_PATH`. When `output.path` is defined, the

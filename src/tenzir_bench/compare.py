@@ -82,6 +82,7 @@ def run_compare(
     validate: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
+    variants: Sequence[str] | None = None,
 ) -> None:
     build_reports = prepare_compare_build_reports(
         paths,
@@ -90,6 +91,7 @@ def run_compare(
         validate=validate,
         dry_run=dry_run,
         verbose=verbose,
+        variants=variants,
     )
     if validate or dry_run:
         return
@@ -109,6 +111,7 @@ def prepare_compare_build_reports(
     validate: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
+    variants: Sequence[str] | None = None,
 ) -> list[tuple[str, PipelineReports]]:
     if not builds:
         return []
@@ -128,6 +131,7 @@ def prepare_compare_build_reports(
             validate=validate,
             dry_run=dry_run,
             verbose=verbose,
+            variants=variants,
         )
         prepared.append((build.label, reports))
     return prepared
@@ -143,6 +147,7 @@ def prepare_compare_reports_for_build(
     validate: bool = False,
     dry_run: bool = False,
     verbose: bool = False,
+    variants: Sequence[str] | None = None,
 ) -> dict[str, Report]:
     active_registry = registry or RunnerRegistry()
     if build.reference_destination:
@@ -155,6 +160,7 @@ def prepare_compare_reports_for_build(
             validate=validate,
             dry_run=dry_run,
             verbose=verbose,
+            variants=variants,
         )
     return _prepare_local_reports(
         paths,
@@ -165,6 +171,7 @@ def prepare_compare_reports_for_build(
         validate=validate,
         dry_run=dry_run,
         verbose=verbose,
+        variants=variants,
     )
 
 
@@ -172,6 +179,7 @@ def expected_report_identities(
     paths: BenchPaths,
     build: CompareBuild,
     benchmark_dirs: Sequence[Path],
+    variants: Sequence[str] | None = None,
 ) -> set[ReportIdentity]:
     version = build.version
     if version is None and build.binary is not None:
@@ -188,7 +196,7 @@ def expected_report_identities(
             .version
         )
     if version is not None and benchmark_dirs:
-        definitions = _definitions_for_paths(benchmark_dirs, version=version)
+        definitions = _definitions_for_paths(benchmark_dirs, version=version, variants=variants)
         return {_definition_identity(definition) for definition in definitions}
     if build.binary is None:
         raise RuntimeError(
@@ -202,7 +210,7 @@ def expected_report_identities(
         dry_run=False,
         verbose=False,
     )
-    contexts = list(_discover_from_dirs(executor, benchmark_dirs))
+    contexts = list(_discover_from_dirs(executor, benchmark_dirs, variants))
     return {_definition_identity(context.definition) for context in contexts}
 
 
@@ -216,13 +224,14 @@ def _prepare_reference_backed_reports(
     validate: bool,
     dry_run: bool,
     verbose: bool,
+    variants: Sequence[str] | None = None,
 ) -> dict[str, Report]:
     target = build.target or _compare_target(build)
     if not target:
         raise RuntimeError(f"{build.label}: reference-backed build requires a target")
     if build.reference_destination is None:
         raise RuntimeError(f"{build.label}: reference-backed build requires a destination")
-    expected = expected_report_identities(paths, build, benchmark_dirs)
+    expected = expected_report_identities(paths, build, benchmark_dirs, variants)
     remote_reports = download_reference_reports(
         build.reference_destination,
         benchmarks=sorted({benchmark_id for benchmark_id, _ in expected}),
@@ -253,6 +262,7 @@ def _prepare_reference_backed_reports(
         validate=validate,
         dry_run=dry_run,
         verbose=verbose,
+        variants=variants,
     )
     if validate or dry_run:
         return local_reports
@@ -282,6 +292,7 @@ def _prepare_local_reports(
     validate: bool,
     dry_run: bool,
     verbose: bool,
+    variants: Sequence[str] | None = None,
 ) -> dict[str, Report]:
     runtime = _build_runtime(build)
     if runtime is None:
@@ -294,7 +305,7 @@ def _prepare_local_reports(
         dry_run=dry_run,
         verbose=verbose,
     )
-    contexts = list(_discover_from_dirs(executor, benchmark_dirs))
+    contexts = list(_discover_from_dirs(executor, benchmark_dirs, variants))
     if not contexts:
         _LOG.error("No benchmarks found to execute")
         return {}
@@ -377,10 +388,16 @@ def _build_path_hint(build: CompareBuild) -> Path:
     return build.binary or Path(build.label)
 
 
-def _definitions_for_paths(paths: Sequence[Path], *, version: str) -> list[LoadedDefinition]:
+def _definitions_for_paths(
+    paths: Sequence[Path],
+    *,
+    version: str,
+    variants: Sequence[str] | None = None,
+) -> list[LoadedDefinition]:
     return load_definitions_from_paths(
         list(paths),
         version_supplier=lambda: version,
+        variants=variants,
     )
 
 
@@ -396,15 +413,18 @@ def _definition_identity(definition: LoadedDefinition) -> ReportIdentity:
 
 
 def _discover_from_dirs(
-    executor: BenchmarkExecutor, dirs: Sequence[Path]
+    executor: BenchmarkExecutor,
+    dirs: Sequence[Path],
+    variants: Sequence[str] | None = None,
 ) -> Iterable[BenchmarkContext]:
     if not dirs:
-        yield from executor.discover(pattern=None)
+        yield from executor.discover(pattern=None, variants=variants)
         return
     try:
         definitions = load_definitions_from_paths(
             list(dirs),
             version_supplier=lambda: executor.build_info().version,
+            variants=variants,
         )
     except (BenchmarkError, FileNotFoundError, RuntimeError) as exc:
         _LOG.error("%s", exc)

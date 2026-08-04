@@ -56,6 +56,7 @@ class BenchmarkDefinition:
     pipeline_body: str
     benchmark_id: str | None = None
     implementation_id: str | None = None
+    variant_id: str | None = None
 
     @property
     def input_names(self) -> tuple[str, ...]:

@@ -180,3 +180,116 @@ discard
             )
 
         self.assertEqual([definition.benchmark_id for definition in definitions], ["from_kafka_1m"])
+
+
+class VariantSpecTests(unittest.TestCase):
+    def _write_suite(self, root: Path) -> Path:
+        suite = root / "bench" / "benchmarks" / "parallel_cpu_bound"
+        suite.mkdir(parents=True)
+        (suite / "bench.yaml").write_text(
+            """name: parallel_cpu_bound
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+    source:
+      num_events: 1
+variants:
+  p1:
+    tenzir_args: ["--parallelism", "1"]
+  p8:
+    description: Parallelism 8
+    tenzir_args: ["--parallelism", "8"]
+    tags:
+      degree: "8"
+""",
+            encoding="utf-8",
+        )
+        (suite / "neo.tql").write_text(
+            """---
+bench:
+  id: neo
+  tenzir_args: ["--neo"]
+---
+discard
+""",
+            encoding="utf-8",
+        )
+        return suite
+
+    def test_manifest_variants_expand_into_definitions(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = self._write_suite(root)
+            definitions = load_definitions_from_paths(
+                [suite],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+            )
+        self.assertEqual(
+            [definition.id for definition in definitions],
+            ["parallel_cpu_bound/neo/p1", "parallel_cpu_bound/neo/p8"],
+        )
+        self.assertEqual(
+            [definition.tenzir_args for definition in definitions],
+            [["--neo", "--parallelism", "1"], ["--neo", "--parallelism", "8"]],
+        )
+        self.assertEqual(definitions[1].description, "Parallelism 8")
+        self.assertEqual(definitions[1].tags["degree"], "8")
+        self.assertEqual(
+            [definition.variant_id for definition in definitions],
+            ["p1", "p8"],
+        )
+
+    def test_variant_filter_selects_single_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = self._write_suite(root)
+            definitions = load_definitions_from_paths(
+                [suite],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+                variants=["p1"],
+            )
+        self.assertEqual(
+            [definition.id for definition in definitions],
+            ["parallel_cpu_bound/neo/p1"],
+        )
+
+    def test_implementation_variants_override_manifest_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = root / "bench" / "benchmarks" / "x"
+            suite.mkdir(parents=True)
+            (suite / "bench.yaml").write_text(
+                """name: x
+variants:
+  shared:
+    tenzir_args: ["--shared"]
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                encoding="utf-8",
+            )
+            (suite / "neo.tql").write_text(
+                """---
+bench:
+  id: neo
+  variants:
+    own:
+      tenzir_args: ["--own"]
+---
+discard
+""",
+                encoding="utf-8",
+            )
+            definitions = load_definitions_from_paths(
+                [suite],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+            )
+        self.assertEqual([definition.id for definition in definitions], ["x/neo/own"])
+        self.assertEqual(definitions[0].tenzir_args, ["--own"])

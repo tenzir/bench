@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
+from fnmatch import fnmatch
 from pathlib import Path
 import re
 from typing import cast
@@ -22,11 +24,30 @@ _VERSION_RE = re.compile(r"^v?(?P<body>[0-9xX*]+(?:\.[0-9xX*]+){0,2})")
 _MAX_SENTINEL = 999_999
 
 
+@dataclass(frozen=True)
+class Variant:
+    """One parameterization of a single implementation file.
+
+    A variant runs the same pipeline body again with additional Tenzir
+    arguments, environment variables, and tags. Variants keep their own
+    implementation id, so reports never collide.
+    """
+
+    id: str
+    description: str | None = None
+    tenzir_args: tuple[str, ...] = ()
+    env: Mapping[str, str] = field(default_factory=lambda: dict[str, str]())
+    tags: Mapping[str, str] = field(default_factory=lambda: dict[str, str]())
+    min_version: str | None = None
+    max_version: str | None = None
+
+
 def discover_definitions(
     pattern: str | None,
     *,
     version_supplier: Callable[[], str | None],
     root: Path | None = None,
+    variants: Sequence[str] | None = None,
 ) -> list[BenchmarkDefinition]:
     resolved_root = (root or Path.cwd()).resolve()
     if pattern:
@@ -36,15 +57,22 @@ def discover_definitions(
                 [candidate.resolve()],
                 version_supplier=version_supplier,
                 root=resolved_root,
+                variants=variants,
             )
     bench_root = resolved_root / "bench"
     if bench_root.exists():
-        return _load_bench_root(
-            bench_root,
-            patterns=[pattern] if pattern else None,
-            version_supplier=version_supplier,
+        return filter_variants(
+            _load_bench_root(
+                bench_root,
+                patterns=[pattern] if pattern else None,
+                version_supplier=version_supplier,
+            ),
+            variants,
         )
-    return _discover_example_definitions(resolved_root, pattern, version_supplier=version_supplier)
+    return filter_variants(
+        _discover_example_definitions(resolved_root, pattern, version_supplier=version_supplier),
+        variants,
+    )
 
 
 def load_definitions_from_paths(
@@ -52,6 +80,7 @@ def load_definitions_from_paths(
     *,
     version_supplier: Callable[[], str | None],
     root: Path | None = None,
+    variants: Sequence[str] | None = None,
 ) -> list[BenchmarkDefinition]:
     resolved_root = (root or Path.cwd()).resolve()
     seen: set[Path] = set()
@@ -90,7 +119,7 @@ def load_definitions_from_paths(
                 version=version_supplier(),
             ),
         )
-    return definitions
+    return filter_variants(definitions, variants)
 
 
 def load_default_patterns(bench_root: Path) -> list[str]:
@@ -179,9 +208,8 @@ def _load_spec_entries(
     for entry in entries:
         resolved = entry.resolve()
         if _is_spec_implementation_file(resolved):
-            implementation = _load_spec_implementation(resolved, version=version)
-            if implementation is not None and resolved not in seen_impls:
-                definitions.append(implementation)
+            if resolved not in seen_impls:
+                definitions.extend(_load_spec_implementation(resolved, version=version))
                 seen_impls.add(resolved)
             continue
         benchmark_root = resolved if resolved.is_dir() else resolved.parent
@@ -198,27 +226,42 @@ def _load_spec_entries(
     return definitions
 
 
+def filter_variants(
+    definitions: Sequence[BenchmarkDefinition],
+    patterns: Sequence[str] | None,
+) -> list[BenchmarkDefinition]:
+    """Keep definitions whose variant id matches one of the glob patterns.
+
+    Definitions without variants are kept only if a pattern matches the empty
+    variant id, so `--variant p1` selects exactly the `p1` variants.
+    """
+    if not patterns:
+        return list(definitions)
+    return [
+        definition
+        for definition in definitions
+        if any(fnmatch(definition.variant_id or "", pattern) for pattern in patterns)
+    ]
+
+
 def _load_benchmark_dir(directory: Path, *, version: str | None) -> list[BenchmarkDefinition]:
     metadata = _parse_benchmark_metadata(directory / "bench.yaml")
     definitions: list[BenchmarkDefinition] = []
     for file in sorted(directory.glob("*.tql")):
-        definition = _parse_spec_implementation(file, directory.name, metadata)
-        if definition is None:
-            continue
-        if _implementation_matches_version(definition, version):
-            definitions.append(definition)
+        for definition in _parse_spec_implementations(file, directory.name, metadata):
+            if _implementation_matches_version(definition, version):
+                definitions.append(definition)
     return definitions
 
 
-def _load_spec_implementation(path: Path, *, version: str | None) -> BenchmarkDefinition | None:
+def _load_spec_implementation(path: Path, *, version: str | None) -> list[BenchmarkDefinition]:
     benchmark_root = path.parent
     metadata = _parse_benchmark_metadata(benchmark_root / "bench.yaml")
-    definition = _parse_spec_implementation(path, benchmark_root.name, metadata)
-    if definition is None:
-        return None
-    if not _implementation_matches_version(definition, version):
-        return None
-    return definition
+    return [
+        definition
+        for definition in _parse_spec_implementations(path, benchmark_root.name, metadata)
+        if _implementation_matches_version(definition, version)
+    ]
 
 
 def _parse_benchmark_metadata(path: Path) -> dict[str, object]:
@@ -231,11 +274,11 @@ def _parse_benchmark_metadata(path: Path) -> dict[str, object]:
     return payload
 
 
-def _parse_spec_implementation(
+def _parse_spec_implementations(
     path: Path,
     benchmark_id: str,
     metadata: dict[str, object],
-) -> BenchmarkDefinition | None:
+) -> list[BenchmarkDefinition]:
     raw_text = path.read_text(encoding="utf-8")
     frontmatter, body = split_frontmatter(raw_text, path)
     payload = _load_yaml_mapping(frontmatter, path, "frontmatter")
@@ -268,24 +311,86 @@ def _parse_spec_implementation(
     implementation_description = description or _optional_str(
         metadata, "description", path, prefix="bench.yaml"
     )
-    return BenchmarkDefinition(
-        path=path,
-        id=f"{benchmark_id}/{implementation_id}",
-        description=implementation_description,
-        tags=tags,
-        min_version=min_version,
-        max_version=max_version,
-        inputs=inputs,
-        output_path=output_path,
-        env=env,
-        fixtures=fixtures,
-        tenzir_args=tenzir_args,
-        runner=runner,
-        runtime=runtime,
-        pipeline_body=body,
-        benchmark_id=benchmark_id,
-        implementation_id=implementation_id,
-    )
+    variants = _parse_variants(implementation.get("variants"), path, "bench.variants")
+    if variants is None:
+        variants = _parse_variants(metadata.get("variants"), path, "bench.yaml variants")
+    if not variants:
+        variants = [Variant(id="")]
+    definitions: list[BenchmarkDefinition] = []
+    for variant in variants:
+        variant_implementation_id = (
+            f"{implementation_id}/{variant.id}" if variant.id else implementation_id
+        )
+        definitions.append(
+            BenchmarkDefinition(
+                path=path,
+                id=f"{benchmark_id}/{variant_implementation_id}",
+                description=variant.description or implementation_description,
+                tags=_merge_tags(tags, dict(variant.tags)),
+                min_version=variant.min_version or min_version,
+                max_version=variant.max_version or max_version,
+                inputs=inputs,
+                output_path=output_path,
+                env={**env, **dict(variant.env)},
+                fixtures=fixtures,
+                tenzir_args=[*tenzir_args, *variant.tenzir_args],
+                runner=runner,
+                runtime=runtime,
+                pipeline_body=body,
+                benchmark_id=benchmark_id,
+                implementation_id=variant_implementation_id,
+                variant_id=variant.id or None,
+            )
+        )
+    return definitions
+
+
+def _parse_variants(value: object, path: Path, label: str) -> list[Variant] | None:
+    """Parse a `variants:` section into an ordered list of variants.
+
+    Returns `None` when the section is absent, so callers can fall back to the
+    variants declared in `bench.yaml`.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise BenchmarkError(f"{path}: {label} must be a mapping of variant ids")
+    variants: list[Variant] = []
+    for variant_id, raw in _string_key_mapping(
+        cast(Mapping[object, object], value), path, label
+    ).items():
+        if not variant_id:
+            raise BenchmarkError(f"{path}: {label} ids must not be empty")
+        options = _require_mapping(raw or {}, path, f"{label}.{variant_id}")
+        unknown = set(options) - {
+            "description",
+            "tenzir_args",
+            "env",
+            "tags",
+            "min_version",
+            "max_version",
+        }
+        if unknown:
+            keys = ", ".join(sorted(unknown))
+            raise BenchmarkError(f"{path}: {label}.{variant_id} has unknown keys: {keys}")
+        variants.append(
+            Variant(
+                id=variant_id,
+                description=_optional_str(options, "description", path, prefix=label),
+                tenzir_args=tuple(
+                    _parse_string_list(
+                        options.get("tenzir_args") or [],
+                        path,
+                        f"{label}.{variant_id}.tenzir_args",
+                    )
+                ),
+                env=_parse_mapping_str(options.get("env") or {}, path, f"{label}.{variant_id}.env"),
+                tags=_parse_tags(options.get("tags") or {}, path, f"{label}.{variant_id}.tags"),
+                min_version=_optional_str(options, "min_version", path, prefix=label),
+                max_version=_optional_str(options, "max_version", path, prefix=label),
+            )
+        )
+    return variants
 
 
 def _implementation_matches_version(definition: BenchmarkDefinition, version: str | None) -> bool:

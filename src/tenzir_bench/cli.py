@@ -77,6 +77,12 @@ def prepare(paths: BenchPaths, force: bool) -> None:
     multiple=True,
     help="Benchmark id, glob, file, or directory to run. Repeat to select multiple.",
 )
+@click.option(
+    "--variant",
+    "variants",
+    multiple=True,
+    help="Run only variants matching the glob pattern. Repeat to select multiple.",
+)
 @click.option("--tenzir-bin", type=click.Path(path_type=Path), help="Path to the Tenzir binary.")
 @click.option(
     "--validate", is_flag=True, help="Validate benchmark commands without executing them."
@@ -96,6 +102,7 @@ def run(
     pattern: str | None,
     tenzir_target: str | None,
     benchmarks: tuple[str, ...],
+    variants: tuple[str, ...],
     tenzir_bin: Path | None,
     validate: bool,
     dry_run: bool,
@@ -124,6 +131,7 @@ def run(
             root=root,
             pattern=pattern,
             benchmarks=benchmarks,
+            variants=variants,
         )
         if not contexts:
             build_version = executor.build_info().version or "unknown"
@@ -184,6 +192,12 @@ def publish(paths: BenchPaths, runs: Path | None, destination: str, force: bool)
 @main.command(context_settings={"ignore_unknown_options": True})
 @click.option("--compact", is_flag=True, help="Render a compact summary table.")
 @click.option(
+    "--variant",
+    "variants",
+    multiple=True,
+    help="Compare only variants matching the glob pattern. Repeat to select multiple.",
+)
+@click.option(
     "--validate", is_flag=True, help="Validate benchmark commands without executing them."
 )
 @click.option(
@@ -199,6 +213,7 @@ def publish(paths: BenchPaths, runs: Path | None, destination: str, force: bool)
 def compare(
     bench_paths: BenchPaths,
     compact: bool,
+    variants: tuple[str, ...],
     validate: bool,
     dry_run: bool,
     verbose: bool,
@@ -229,6 +244,7 @@ def compare(
             validate=validate,
             dry_run=dry_run,
             verbose=verbose,
+            variants=variants,
         )
     except RuntimeError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -297,13 +313,14 @@ def _load_contexts(
     root: Path,
     pattern: str | None,
     benchmarks: Sequence[str],
+    variants: Sequence[str] = (),
 ) -> BenchmarkContextList:
     definitions: list[BenchmarkDefinition] = []
     if benchmarks:
         seen: set[tuple[Path, str]] = set()
         for selector in benchmarks:
             for definition in _discover_selected_definitions(
-                executor, root=root, selector=selector
+                executor, root=root, selector=selector, variants=variants
             ):
                 key = (definition.path, definition.id)
                 if key in seen:
@@ -316,6 +333,7 @@ def _load_contexts(
                 pattern,
                 version_supplier=lambda: executor.build_info().version,
                 root=root,
+                variants=variants,
             ),
         )
     return [
@@ -330,6 +348,7 @@ def _discover_selected_definitions(
     *,
     root: Path,
     selector: str,
+    variants: Sequence[str] = (),
 ) -> list[BenchmarkDefinition]:
     candidates = [
         Path(selector),
@@ -345,11 +364,13 @@ def _discover_selected_definitions(
                 str(candidate.resolve()),
                 version_supplier=lambda: executor.build_info().version,
                 root=root,
+                variants=variants,
             )
     return discover_definitions(
         selector,
         version_supplier=lambda: executor.build_info().version,
         root=root,
+        variants=variants,
     )
 
 

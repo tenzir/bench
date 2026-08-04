@@ -41,6 +41,14 @@ tenzir-bench run \
 You can also use `--filter` to select benchmark IDs with a glob. The
 `--filter` and `--benchmark` options are mutually exclusive.
 
+Implementations may declare `variants:` that re-run the same pipeline with
+different Tenzir arguments. Select them with `--variant`, which accepts globs
+and is repeatable:
+
+```sh
+tenzir-bench run --tenzir /path/to/tenzir --variant p1 --variant p8
+```
+
 Use a Docker image instead of a local executable by prefixing the target with
 `docker://`:
 
@@ -92,6 +100,17 @@ tenzir-bench compare \
   --base /path/to/baseline/bin/tenzir \
   --run --candidate /path/to/candidate/bin/tenzir \
   examples/benchmarks
+```
+
+Restrict a comparison to specific variants with `--variant`. This is useful
+when a build does not support the arguments of every variant:
+
+```sh
+tenzir-bench compare \
+  --base /path/to/baseline/bin/tenzir \
+  --candidate /path/to/candidate/bin/tenzir \
+  --variant p1 \
+  bench/benchmarks/parallel_cpu_bound
 ```
 
 Build markers can point to local binaries or Docker images:

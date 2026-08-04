@@ -81,13 +81,18 @@ class BenchmarkExecutor:
         self._validated_invocation: bool = False
 
     def discover(
-        self, pattern: str | None, *, root: Path | None = None
+        self,
+        pattern: str | None,
+        *,
+        root: Path | None = None,
+        variants: Sequence[str] | None = None,
     ) -> Iterable[BenchmarkContext]:
         try:
             definitions = discover_definitions(
                 pattern,
                 version_supplier=lambda: self._get_build_info().version,
                 root=root,
+                variants=variants,
             )
         except BenchmarkError as exc:
             _LOG.error("%s", exc)
