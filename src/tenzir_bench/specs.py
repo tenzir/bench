@@ -232,15 +232,17 @@ def filter_variants(
 ) -> list[BenchmarkDefinition]:
     """Keep definitions whose variant id matches one of the glob patterns.
 
-    Definitions without variants are kept only if a pattern matches the empty
-    variant id, so `--variant p1` selects exactly the `p1` variants.
+    Implementations without variants are always kept: the patterns select among
+    the variants of an implementation, they do not exclude implementations that
+    have none.
     """
     if not patterns:
         return list(definitions)
     return [
         definition
         for definition in definitions
-        if any(fnmatch(definition.variant_id or "", pattern) for pattern in patterns)
+        if definition.variant_id is None
+        or any(fnmatch(definition.variant_id, pattern) for pattern in patterns)
     ]
 
 

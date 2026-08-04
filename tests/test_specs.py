@@ -241,6 +241,42 @@ discard
             ["p1", "p8"],
         )
 
+    def test_variant_filter_keeps_implementations_without_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = self._write_suite(root)
+            plain = root / "bench" / "benchmarks" / "plain"
+            plain.mkdir(parents=True)
+            (plain / "bench.yaml").write_text(
+                """name: plain
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                encoding="utf-8",
+            )
+            (plain / "neo.tql").write_text(
+                """---
+bench:
+  id: neo
+---
+discard
+""",
+                encoding="utf-8",
+            )
+            definitions = load_definitions_from_paths(
+                [suite, plain],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+                variants=["p1"],
+            )
+        self.assertEqual(
+            [definition.id for definition in definitions],
+            ["parallel_cpu_bound/neo/p1", "plain/neo"],
+        )
+
     def test_variant_filter_selects_single_variant(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

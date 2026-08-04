@@ -90,7 +90,7 @@ the benchmark. An implementation that declares its own `variants:` overrides
 the shared set.
 
 Select variants on the command line with `--variant`, which accepts globs and
-can be repeated:
+can be repeated. Implementations without variants always run:
 
 ```sh
 tenzir-bench run --tenzir ./build/bin/tenzir --variant p1
