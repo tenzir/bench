@@ -363,7 +363,9 @@ def _parse_variants(value: object, path: Path, label: str) -> list[Variant] | No
     ).items():
         if not variant_id:
             raise BenchmarkError(f"{path}: {label} ids must not be empty")
-        options = _require_mapping(raw or {}, path, f"{label}.{variant_id}")
+        # Only `None` is shorthand for empty options; anything else must be a
+        # mapping so that typos like `p1: []` or `p1: false` are rejected.
+        options = _require_mapping({} if raw is None else raw, path, f"{label}.{variant_id}")
         unknown = set(options) - {
             "description",
             "tenzir_args",

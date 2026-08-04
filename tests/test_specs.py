@@ -3,7 +3,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkRuntime
+from tenzir_bench.definitions import BenchmarkDefinition, BenchmarkError, BenchmarkRuntime
 from tenzir_bench.hashing import hash_benchmark
 from tenzir_bench.specs import discover_definitions, load_definitions_from_paths
 
@@ -332,6 +332,73 @@ discard
             )
         self.assertEqual([definition.id for definition in definitions], ["x/neo/own"])
         self.assertEqual(definitions[0].tenzir_args, ["--own"])
+
+    def test_variant_options_reject_non_mapping_values(self) -> None:
+        for malformed in ("[]", "false", '""'):
+            with self.subTest(malformed=malformed), tempfile.TemporaryDirectory() as tmpdir:
+                root = Path(tmpdir)
+                suite = root / "bench" / "benchmarks" / "x"
+                suite.mkdir(parents=True)
+                (suite / "bench.yaml").write_text(
+                    f"""name: x
+variants:
+  p1: {malformed}
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                    encoding="utf-8",
+                )
+                (suite / "neo.tql").write_text(
+                    """---
+bench:
+  id: neo
+---
+discard
+""",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(BenchmarkError):
+                    _ = load_definitions_from_paths(
+                        [suite],
+                        version_supplier=lambda: "v6.9.0",
+                        root=root,
+                    )
+
+    def test_variant_options_accept_null_shorthand(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = root / "bench" / "benchmarks" / "x"
+            suite.mkdir(parents=True)
+            (suite / "bench.yaml").write_text(
+                """name: x
+variants:
+  p1:
+inputs:
+  main:
+    path: a.json
+    source:
+      num_events: 1
+""",
+                encoding="utf-8",
+            )
+            (suite / "neo.tql").write_text(
+                """---
+bench:
+  id: neo
+---
+discard
+""",
+                encoding="utf-8",
+            )
+            definitions = load_definitions_from_paths(
+                [suite],
+                version_supplier=lambda: "v6.9.0",
+                root=root,
+            )
+        self.assertEqual([definition.id for definition in definitions], ["x/neo/p1"])
 
     def test_variant_identity_changes_the_benchmark_hash(self) -> None:
         base = BenchmarkDefinition(
