@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shlex
 import subprocess
@@ -157,7 +158,11 @@ def _runtime_env(target: TargetKind, env: Mapping[str, str] | None) -> dict[str,
             for name in merged.get("TENZIR_BENCH_FORWARD_ENV", "").split(",")
             if name.strip()
         }
-        forward.update(name for name in merged if name != "TENZIR_BENCH_FORWARD_ENV")
+        forward.update(
+            name
+            for name, value in merged.items()
+            if name != "TENZIR_BENCH_FORWARD_ENV" and os.environ.get(name) != value
+        )
         merged["TENZIR_BENCH_FORWARD_ENV"] = ",".join(sorted(forward))
     return merged
 

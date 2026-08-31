@@ -321,6 +321,7 @@ class ExecutorTest(unittest.TestCase):
             def _before_run(*, phase, run_index, env, **_kwargs):  # noqa: ANN001
                 events.append(("before", phase, run_index))
                 assert env["DEMO_FIXTURE"] == f"fixture-{options.topic}"
+                env["DEMO_RUN"] = f"{phase}-{run_index}"
 
             def _after_run(*, phase, run_index, success, **_kwargs):  # noqa: ANN001
                 events.append(("after", phase, run_index))
@@ -392,7 +393,10 @@ class ExecutorTest(unittest.TestCase):
         self.assertEqual(len(reports), 2)
         for env in runner.envs:
             self.assertEqual(env["DEMO_FIXTURE"], "fixture-bench")
-            self.assertIn("DEMO_FIXTURE", env["TENZIR_BENCH_FORWARD_ENV"].split(","))
+            forwarded = env["TENZIR_BENCH_FORWARD_ENV"].split(",")
+            self.assertIn("DEMO_FIXTURE", forwarded)
+            self.assertIn("DEMO_RUN", forwarded)
+            self.assertNotIn("PATH", forwarded)
         self.assertEqual(
             [event for event in events if event[0] == "before"],
             [
