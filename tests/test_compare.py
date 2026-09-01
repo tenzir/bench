@@ -15,7 +15,7 @@ from tenzir_bench.compare import (
 from tenzir_bench.executor import BenchmarkExecutor, BuildInfo, build_result_id
 from tenzir_bench.paths import BenchPaths
 from tenzir_bench.reports import Report
-from tenzir_bench.runtime import _docker_wrapper_script, runtime_from_path
+from tenzir_bench.runtime import _docker_wrapper_script, _runtime_env, runtime_from_path
 
 
 def _ensure(path: Path) -> Path:
@@ -24,6 +24,38 @@ def _ensure(path: Path) -> Path:
 
 
 class CompareHelpersTest(unittest.TestCase):
+    def test_docker_runtime_env_excludes_inherited_path(self) -> None:
+        with patch.dict("os.environ", {"PATH": "/host/bin", "HOST_ONLY": "value"}, clear=True):
+            env = _runtime_env(
+                "docker",
+                {
+                    "PATH": "/host/bin",
+                    "HOST_ONLY": "value",
+                    "BENCHMARK_INPUT_PATH": "/input",
+                    "ICEBERG_REST_URI": "http://catalog",
+                    "TENZIR_BENCH_FORWARD_ENV": "BENCHMARK_INPUT_PATH",
+                },
+            )
+
+        assert env is not None
+        self.assertEqual(
+            env["TENZIR_BENCH_FORWARD_ENV"],
+            "BENCHMARK_INPUT_PATH,ICEBERG_REST_URI",
+        )
+
+    def test_docker_runtime_env_preserves_allowlisted_path(self) -> None:
+        with patch.dict("os.environ", {"PATH": "/host/bin"}, clear=True):
+            env = _runtime_env(
+                "docker",
+                {
+                    "PATH": "/custom/bin",
+                    "TENZIR_BENCH_FORWARD_ENV": "PATH",
+                },
+            )
+
+        assert env is not None
+        self.assertEqual(env["TENZIR_BENCH_FORWARD_ENV"], "PATH")
+
     def test_runtime_from_path_preserves_tenzir_node_symlink_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             bindir = Path(tmpdir) / "bin"

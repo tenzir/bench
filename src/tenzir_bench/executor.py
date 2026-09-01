@@ -596,6 +596,7 @@ def _run_once(
     if len(input_paths) == 1:
         before_kwargs["input_path"] = next(iter(input_paths.values()))
     fixture_api.invoke_active_hook("before_run", **before_kwargs)
+    _refresh_forwarded_env(run_env, inherited=os.environ)
     metrics: RunnerMetrics | None = None
     try:
         metrics = runner.run(command, env=run_env, timeout=timeout)
@@ -770,9 +771,23 @@ def _benchmark_env(
     return env
 
 
-def _refresh_forwarded_env(env: dict[str, str]) -> None:
-    forward_keys = sorted(key for key in env if key != "TENZIR_BENCH_FORWARD_ENV")
-    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(forward_keys)
+def _refresh_forwarded_env(
+    env: dict[str, str],
+    *,
+    inherited: Mapping[str, str] | None = None,
+) -> None:
+    forward_keys = {
+        key.strip()
+        for key in env.get("TENZIR_BENCH_FORWARD_ENV", "").split(",")
+        if key.strip()
+    }
+    forward_keys.update(
+        key
+        for key, value in env.items()
+        if key != "TENZIR_BENCH_FORWARD_ENV"
+        and (inherited is None or inherited.get(key) != value)
+    )
+    env["TENZIR_BENCH_FORWARD_ENV"] = ",".join(sorted(forward_keys))
 
 
 def _benchmark_input_env_name(input_name: str) -> str:
