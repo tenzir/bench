@@ -28,6 +28,12 @@ Run the default benchmark set against a local Tenzir binary:
 tenzir-bench run --tenzir ./build/bin/tenzir
 ```
 
+Without a selection, `tenzir-bench` runs the benchmarks matching the glob
+patterns in `bench/defaults.txt`, or all benchmarks if that file is missing or
+empty. It skips benchmarks matching the patterns in `bench/excluded.txt`. Both
+files list one benchmark ID glob per line and ignore blank lines and lines
+starting with `#`. Explicit selections ignore both files.
+
 Select benchmarks by an ID, a glob, a file, or a directory. Repeat
 `--benchmark` to combine selections:
 

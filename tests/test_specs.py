@@ -97,6 +97,48 @@ discard
         self.assertEqual(definitions[0].tenzir_args, ["--neo"])
         self.assertEqual(definitions[0].input_source, "../../fixtures/eve.json")
 
+    def test_discover_definitions_skips_excluded_benchmarks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            bench_root = root / "bench"
+            for name in ("from_kafka_1m", "to_iceberg_layouts"):
+                suite = bench_root / "benchmarks" / name
+                suite.mkdir(parents=True)
+                (suite / "bench.yaml").write_text(
+                    f"""name: {name}
+inputs:
+  main:
+    path: suricata/eve.json
+    repetitions: 1
+""",
+                    encoding="utf-8",
+                )
+                (suite / "default.tql").write_text(
+                    """---
+bench:
+  id: default
+---
+discard
+""",
+                    encoding="utf-8",
+                )
+            (bench_root / "excluded.txt").write_text(
+                "# Too slow for CI.\n\nto_iceberg_*\n", encoding="utf-8"
+            )
+
+            def discovered(pattern: str | None) -> list[str]:
+                definitions = discover_definitions(
+                    pattern,
+                    version_supplier=lambda: "v5.30.1",
+                    root=root,
+                )
+                return [definition.id for definition in definitions]
+
+            self.assertEqual(discovered(None), ["from_kafka_1m/default"])
+            (bench_root / "defaults.txt").write_text("*\n", encoding="utf-8")
+            self.assertEqual(discovered(None), ["from_kafka_1m/default"])
+            self.assertEqual(discovered("to_iceberg_*"), ["to_iceberg_layouts/default"])
+
     def test_load_definitions_from_paths_keeps_all_compatible_implementations(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
