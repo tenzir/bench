@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from fnmatch import fnmatch
 from pathlib import Path
 import re
 from typing import cast
@@ -94,11 +95,18 @@ def load_definitions_from_paths(
 
 
 def load_default_patterns(bench_root: Path) -> list[str]:
-    defaults_path = bench_root / "defaults.txt"
-    if not defaults_path.exists():
+    return _load_pattern_file(bench_root / "defaults.txt")
+
+
+def load_excluded_patterns(bench_root: Path) -> list[str]:
+    return _load_pattern_file(bench_root / "excluded.txt")
+
+
+def _load_pattern_file(path: Path) -> list[str]:
+    if not path.exists():
         return []
     patterns: list[str] = []
-    for raw_line in defaults_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -153,11 +161,15 @@ def _select_benchmark_dirs(bench_root: Path, patterns: Sequence[str] | None) -> 
         if directory.is_dir() and (directory / "bench.yaml").exists()
     )
     if not patterns:
+        excluded = load_excluded_patterns(bench_root)
+        benchmark_dirs = [
+            directory
+            for directory in benchmark_dirs
+            if not any(fnmatch(directory.name, pattern) for pattern in excluded)
+        ]
         patterns = load_default_patterns(bench_root)
     if not patterns:
         return benchmark_dirs
-    from fnmatch import fnmatch
-
     selected: list[Path] = []
     seen: set[Path] = set()
     for pattern in patterns:
