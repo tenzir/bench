@@ -70,6 +70,21 @@ class CompareHelpersTest(unittest.TestCase):
 
         self.assertEqual(runtime.command_for_tenzir_node(())[0], str(tenzir_node))
 
+    def test_static_runtime_runs_pipelines_with_previous_command_interface(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tenzir = Path(tmpdir) / "bin" / "tenzir"
+            tenzir.parent.mkdir(parents=True)
+            tenzir.write_text('#!/bin/sh\necho "$TENZIR_UNIFIED"\n', encoding="utf-8")
+            tenzir.chmod(0o755)
+            runtime = runtime_from_path(tenzir)
+
+            with patch.dict("os.environ", {"TENZIR_UNIFIED": "1"}):
+                inherited = runtime.run_tenzir(args=[], capture_output=True)
+            explicit = runtime.run_tenzir(args=[], env={"OTHER": "value"}, capture_output=True)
+
+        self.assertEqual(inherited.stdout, "0\n")
+        self.assertEqual(explicit.stdout, "0\n")
+
     def test_runtime_from_path_recovers_docker_node_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             docker_dir = Path(tmpdir) / "state" / "docker"
@@ -492,3 +507,4 @@ discard
         self.assertIn('forward_envs+=("-e" "CACHE_DIRECTORY=$CACHE_DIR")', script)
         self.assertIn('forward_envs+=("-e" "STATE_DIRECTORY=$STATE_DIR")', script)
         self.assertIn('forward_envs+=("-e" "LOGS_DIRECTORY=$LOGS_DIR")', script)
+        self.assertIn("forward_envs+=(-e TENZIR_UNIFIED=0)", script)

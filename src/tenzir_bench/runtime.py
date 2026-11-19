@@ -11,11 +11,18 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
-from typing import IO, Literal, cast
+from types import MappingProxyType
+from typing import IO, Final, Literal, cast
 
 from .paths import BenchPaths
 
 TargetKind = Literal["static", "docker"]
+
+# From Tenzir v7 on, `tenzir <pipeline>` no longer runs a pipeline: the first
+# argument names a command, unless `TENZIR_UNIFIED` selects the previous command
+# interface. Benchmarks and fixtures pass pipelines and options the previous
+# way, which every version understands. Earlier versions ignore the variable.
+COMMAND_INTERFACE_ENV: Final[Mapping[str, str]] = MappingProxyType({"TENZIR_UNIFIED": "0"})
 
 
 @dataclass(frozen=True)
@@ -149,6 +156,9 @@ def _docker_wrapper_paths(path: Path) -> tuple[Path, Path | None]:
 
 
 def _runtime_env(target: TargetKind, env: Mapping[str, str] | None) -> dict[str, str] | None:
+    # The wrapper script selects the command interface for Docker targets.
+    if target == "static":
+        return {**(os.environ if env is None else env), **COMMAND_INTERFACE_ENV}
     if env is None:
         return None
     merged = dict(env)
@@ -209,6 +219,10 @@ def _docker_wrapper_script(image: str, paths: BenchPaths, *, executable: str = "
             '"${volumes[@]}" "${forward_envs[@]}" "${workdir_args[@]}" '
             f'--entrypoint {executable_name} "$IMAGE" "$@"\n'
         )
+    command_interface_envs = "\n".join(
+        f"forward_envs+=({shlex.quote('-e')} {shlex.quote(f'{name}={value}')})"
+        for name, value in COMMAND_INTERFACE_ENV.items()
+    )
     script = f"""\
 #!/usr/bin/env bash
 set -euo pipefail
@@ -269,6 +283,7 @@ for name in "${{env_names[@]}}"; do
         forward_envs+=("-e" "$name")
     fi
 done
+{command_interface_envs}
 
 {run_body.rstrip()}
 """

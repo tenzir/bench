@@ -24,7 +24,7 @@ from .hashing import hash_benchmark, hash_inputs
 from .hardware import environment_snapshot, hardware_key
 from .paths import BenchPaths
 from .reports import REPORT_SCHEMA_VERSION
-from .runtime import TenzirRuntime, runtime_from_path
+from .runtime import COMMAND_INTERFACE_ENV, TenzirRuntime, runtime_from_path
 from .runners import Runner, RunnerMetrics, RunnerRegistry
 from .specs import discover_definitions
 
@@ -370,10 +370,8 @@ class BenchmarkExecutor:
     def _validate_invocation(self) -> None:
         if self._validated_invocation:
             return
-        proc = subprocess.run(
-            self.runtime.command_for_tenzir(
-                [*self.tenzir_args, "version | select version | write_ndjson"]
-            ),
+        proc = self.runtime.run_tenzir(
+            args=[*self.tenzir_args, "version | select version | write_ndjson"],
             check=False,
             capture_output=True,
             text=True,
@@ -582,7 +580,7 @@ def _run_once(
         output_file = output_root / "outputs" / definition.output_path
         if output_file.exists():
             output_file.unlink()
-    run_env = {**os.environ, **env}
+    run_env = {**os.environ, **env, **COMMAND_INTERFACE_ENV}
     phase = "measurement" if store_result else "warmup"
     before_kwargs: dict[str, object] = {
         "definition": definition,
