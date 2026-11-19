@@ -56,6 +56,25 @@ bench:
 ---
 ```
 
+Set `runner` in `bench.yaml` to select how all implementations of a benchmark
+run, or in the `bench:` frontmatter of an implementation to select it for that
+implementation only. The default `time` runner measures a `tenzir` process. The
+`deployment` runner runs the pipeline in a deployment:
+
+```yaml
+---
+bench:
+  id: deployment
+  description: Import the dataset in a deployment.
+  min_version: "7.0.0"
+  runner: deployment
+---
+```
+
+A pipeline for the `deployment` runner must end with a sink and must end on its
+own. Read the [command guide](../../docs/README.md#run-benchmarks-in-a-deployment)
+for all requirements and for what the measurements cover.
+
 The harness injects one environment variable per named input in the form
 `BENCHMARK_INPUT_<INPUT_NAME>_PATH`. Single-input benchmarks also get the
 compatibility alias `BENCHMARK_INPUT_PATH`. When `output.path` is defined, the
@@ -93,7 +112,8 @@ The `suricata_node_catalog_lookup` example shows this pattern. Its
 
 This repository keeps only three runnable examples:
 
-- `suricata_parse_json/` is a minimal fixtureless benchmark.
+- `suricata_parse_json/` is a minimal fixtureless benchmark. Its `deployment`
+  implementation runs the same pipeline in a deployment.
 - `suricata_node_catalog_lookup/` uses the node fixture and the runtime API.
 - `suricata_from_kafka/` uses the Kafka fixture from
   `examples/fixtures/kafka/fixture.py`.
