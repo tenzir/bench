@@ -68,6 +68,65 @@ as `~/.local/state/tenzir-bench/results` on Linux. Reports use a deterministic
 layout derived from the benchmark definition, inputs, runner, and Tenzir build.
 This layout prevents incompatible or redundant results from being mixed.
 
+### Run benchmarks in a deployment
+
+By default, the harness runs each benchmark as a `tenzir` process and measures
+that process. A benchmark that selects the `deployment` runner runs in a
+deployment instead, which is how Tenzir v7 and later run pipelines in
+production:
+
+```yaml
+---
+bench:
+  id: deployment
+  min_version: "7.0.0"
+  runner: deployment
+---
+```
+
+For every warmup and measurement run, the harness does the following:
+
+1. Start a deployment that has no connection to a platform and keeps its state
+   in a temporary directory.
+1. Hand the pipeline to the deployment through the deployment API.
+1. Wait until the deployment reports that the pipeline finished.
+1. Stop the deployment and remove the temporary directory.
+
+The measurements differ from the ones of the default runner as follows:
+
+- The wall-clock time spans from handing over the pipeline until the
+  deployment reports that the pipeline finished. It excludes the time to start
+  and stop the deployment.
+- The CPU time and the peak resident memory cover the deployment process from
+  its start to its exit.
+
+Because of these differences, compare a deployment result only with other
+deployment results.
+
+A pipeline that runs in a deployment must meet these requirements:
+
+- The pipeline starts with a source and ends with a sink, such as `discard`. A
+  deployment has no standard input or output.
+- The pipeline ends on its own. The run fails if the pipeline doesn't finish
+  within `runtime.timeout_seconds`.
+- The pipeline uses only operators that a deployment provides. For example, a
+  deployment has no `import` and `export` operators.
+- The implementation defines no `tenzir_args`, and you pass no Tenzir options
+  on the command line. A deployment takes its engine settings from the
+  environment.
+
+The deployment starts with the benchmark environment, so `env("...")` in a
+pipeline resolves inputs and fixture values as with the default runner.
+
+To run a single pipeline this way without a benchmark definition, use the
+module that the runner invokes. It prints the measurements as JSON:
+
+```sh
+python -m tenzir_bench.deployment \
+  --tenzir /path/to/tenzir \
+  --file pipeline.tql
+```
+
 ### Run a development checkout
 
 Before publishing a release, use `uvx --from` to execute the checkout:
@@ -196,7 +255,9 @@ each named input. A benchmark with one input also receives
 Fixtures can provision external systems, seed selected inputs, and run hooks
 before and after each measurement. Runners wrap Tenzir to collect metrics such
 as wall-clock time, CPU use, peak resident memory, hardware counters, and cache
-statistics.
+statistics. The `time` runner measures a `tenzir` process and is the default.
+The `deployment` runner [runs the pipeline in a
+deployment](#run-benchmarks-in-a-deployment).
 
 Read the [benchmark authoring guide](../examples/benchmarks/README.md) for the
 manifest schema, fixture behavior, and complete examples.

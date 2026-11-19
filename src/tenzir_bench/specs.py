@@ -273,9 +273,9 @@ def _parse_spec_implementation(
         raise BenchmarkError(f"{path}: output.path must be a string")
     env = _parse_mapping_str(metadata.get("env") or {}, path, "bench.yaml env")
     fixtures = parse_fixture_specs(metadata, path)
-    runner = metadata.get("runner", "time")
+    runner = implementation.get("runner", metadata.get("runner", "time"))
     if not isinstance(runner, str):
-        raise BenchmarkError(f"{path}: bench.yaml runner must be a string")
+        raise BenchmarkError(f"{path}: runner must be a string")
     runtime = _parse_runtime(metadata.get("runtime") or {}, path)
     implementation_description = description or _optional_str(
         metadata, "description", path, prefix="bench.yaml"

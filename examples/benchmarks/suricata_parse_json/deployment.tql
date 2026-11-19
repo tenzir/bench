@@ -1,0 +1,12 @@
+---
+bench:
+  id: deployment
+  description: Parse Suricata EVE JSON strings manually in a deployment.
+  min_version: "7.0.0"
+  runner: deployment
+---
+from_file f"{env("BENCHMARK_INPUT_MAIN_PATH")}" {
+  read_lines
+}
+this = move line.parse_json()
+discard

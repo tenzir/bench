@@ -15,7 +15,12 @@ from tenzir_bench.compare import (
 from tenzir_bench.executor import BenchmarkExecutor, BuildInfo, build_result_id
 from tenzir_bench.paths import BenchPaths
 from tenzir_bench.reports import Report
-from tenzir_bench.runtime import _docker_wrapper_script, _runtime_env, runtime_from_path
+from tenzir_bench.runtime import (
+    _docker_wrapper_script,
+    _runtime_env,
+    resolve_runtime,
+    runtime_from_path,
+)
 
 
 def _ensure(path: Path) -> Path:
@@ -104,6 +109,24 @@ class CompareHelpersTest(unittest.TestCase):
             runtime.command_for_tenzir_node(()),
             [str(tenzir_node_wrapper)],
         )
+
+    def test_docker_runtime_starts_deployments_through_its_own_wrapper(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            paths = BenchPaths(
+                dirs=PlatformDirs(appname="tenzir-bench", appauthor="Tenzir"),
+                ensure_dir=_ensure,
+                cache_root=root / "cache",
+                state_root=root / "state",
+            )
+
+            runtime = resolve_runtime(paths, "docker://example/tenzir:main")
+            recovered = runtime_from_path(runtime.tenzir_path)
+            command = runtime.command_for_deployment(["--store", "file:/store"])
+
+        self.assertNotEqual(command[0], str(runtime.tenzir_path))
+        self.assertEqual(command[1:], ["--store", "file:/store"])
+        self.assertEqual(recovered.command_for_deployment(()), [command[0]])
 
     def test_cache_key_distinguishes_same_version_binaries(self) -> None:
         info_a = BuildInfo(version="v1.2.3", build_type="Release", path="/tmp/a/bin/tenzir")

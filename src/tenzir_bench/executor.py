@@ -253,11 +253,7 @@ class BenchmarkExecutor:
         output_root = self._result_dir(context, build)
         output_root.mkdir(parents=True, exist_ok=True)
         self._validate_invocation()
-        command = _tenzir_command(
-            self.runtime,
-            [*self.tenzir_args, *context.definition.tenzir_args],
-            pipeline_path=context.definition.path,
-        )
+        command = self._command(context)
         with _benchmark_runtime_env(context, output_root) as env:
             self._print_invocation_once(context, env, command)
             if self.validate_only:
@@ -342,13 +338,17 @@ class BenchmarkExecutor:
         build = self._get_build_info()
         output_root = self._result_dir(context, build)
         self._validate_invocation()
-        command = _tenzir_command(
-            self.runtime,
-            [*self.tenzir_args, *context.definition.tenzir_args],
-            pipeline_path=context.definition.path,
-        )
+        command = self._command(context)
         with _benchmark_runtime_env(context, output_root) as env:
             self._print_invocation_once(context, env, command)
+
+    def _command(self, context: BenchmarkContext) -> list[str]:
+        runner = self.runners.get(context.definition.runner)
+        return runner.command(
+            self.runtime,
+            [*self.tenzir_args, *context.definition.tenzir_args],
+            context.definition.path,
+        )
 
     def _print_invocation_once(
         self,
@@ -392,11 +392,7 @@ class BenchmarkExecutor:
             context.dataset_inputs,
             self._dry_run_result_dir(context),
         )
-        command = _tenzir_command(
-            self.runtime,
-            [*self.tenzir_args, *context.definition.tenzir_args],
-            pipeline_path=context.definition.path,
-        )
+        command = self._command(context)
         self._print_invocation_once(context, env, command)
 
     def _progress_prefix(self) -> str:
@@ -732,21 +728,6 @@ def _staged_report_path(
     target = output_dir / relative
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
-
-
-def _tenzir_command(
-    runtime: TenzirRuntime,
-    tenzir_args: Sequence[str],
-    *,
-    pipeline: str | None = None,
-    pipeline_path: Path | None = None,
-) -> list[str]:
-    command = runtime.command_for_tenzir(tenzir_args)
-    if pipeline is not None:
-        command.append(pipeline)
-    if pipeline_path is not None:
-        command.extend(["--file", str(pipeline_path)])
-    return command
 
 
 def _benchmark_env(

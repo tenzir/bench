@@ -222,3 +222,45 @@ discard
             )
 
         self.assertEqual([definition.benchmark_id for definition in definitions], ["from_kafka_1m"])
+
+    def test_implementation_runner_overrides_the_benchmark_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            suite = root / "bench" / "benchmarks" / "json_parse"
+            suite.mkdir(parents=True)
+            (suite / "bench.yaml").write_text(
+                """runner: time
+inputs:
+  main:
+    path: suricata/eve.json
+    source:
+      num_events: 1
+""",
+                encoding="utf-8",
+            )
+            (suite / "default.tql").write_text(
+                """---
+bench:
+  id: default
+---
+discard
+""",
+                encoding="utf-8",
+            )
+            (suite / "deployment.tql").write_text(
+                """---
+bench:
+  id: deployment
+  runner: deployment
+---
+discard
+""",
+                encoding="utf-8",
+            )
+
+            definitions = discover_definitions(None, version_supplier=lambda: None, root=root)
+
+        self.assertEqual(
+            {definition.id: definition.runner for definition in definitions},
+            {"json_parse/default": "time", "json_parse/deployment": "deployment"},
+        )

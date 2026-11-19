@@ -24,6 +24,13 @@ TargetKind = Literal["static", "docker"]
 # way, which every version understands. Earlier versions ignore the variable.
 COMMAND_INTERFACE_ENV: Final[Mapping[str, str]] = MappingProxyType({"TENZIR_UNIFIED": "0"})
 
+# The name under which `tenzir` runs the deployment instead of a command.
+DEPLOYMENT_EXECUTABLE: Final = "tenzir-up"
+
+# Starts the line on which a Docker deployment reports its resource usage: the
+# user and system CPU seconds and the peak resident set size in kilobytes.
+DEPLOYMENT_RUSAGE_MARKER: Final = "tenzir-bench-rusage="
+
 
 @dataclass(frozen=True)
 class TenzirRuntime:
@@ -33,6 +40,7 @@ class TenzirRuntime:
     source: str
     tenzir_path: Path
     tenzir_node_path: Path | None = None
+    tenzir_up_path: Path | None = None
 
     def command_for_tenzir(self, args: Sequence[str]) -> list[str]:
         return [str(self.tenzir_path), *args]
@@ -41,6 +49,15 @@ class TenzirRuntime:
         if self.tenzir_node_path is None:
             raise RuntimeError(f"{self.source}: tenzir-node is not available for this runtime")
         return [str(self.tenzir_node_path), *args]
+
+    def command_for_deployment(self, args: Sequence[str]) -> list[str]:
+        """Return the command that starts a deployment, as `tenzir-up` does."""
+        up_path = self.tenzir_up_path
+        if up_path is None and self.target == "static":
+            up_path = _deployment_alias(self.tenzir_path)
+        if up_path is None:
+            raise RuntimeError(f"{self.source}: deployments are not available for this runtime")
+        return [str(up_path), *args]
 
     def run_tenzir(
         self,
@@ -81,6 +98,31 @@ class TenzirRuntime:
             cwd=cwd,
         )
 
+    def popen_deployment(
+        self,
+        *,
+        args: Sequence[str],
+        env: Mapping[str, str] | None = None,
+        stdout: IO[str] | int | None = None,
+        stderr: IO[str] | int | None = None,
+        text: bool = True,
+        cwd: Path | None = None,
+    ) -> subprocess.Popen[str]:
+        """Start a deployment.
+
+        For a Docker target, the process reports the resource usage of the
+        deployment on its standard error when it exits, as a line that
+        `DEPLOYMENT_RUSAGE_MARKER` starts.
+        """
+        return subprocess.Popen(
+            self.command_for_deployment(args),
+            env=_runtime_env(self.target, env),
+            stdout=stdout,
+            stderr=stderr,
+            text=text,
+            cwd=cwd,
+        )
+
 
 def resolve_runtime(paths: BenchPaths, value: str) -> TenzirRuntime:
     if value.startswith("docker://"):
@@ -95,12 +137,13 @@ def resolve_runtime(paths: BenchPaths, value: str) -> TenzirRuntime:
 def runtime_from_path(path: Path) -> TenzirRuntime:
     resolved = path.resolve()
     if resolved.suffix == ".sh" and resolved.parent.name == "docker":
-        tenzir_path, tenzir_node_path = _docker_wrapper_paths(resolved)
+        tenzir_path, tenzir_node_path, tenzir_up_path = _docker_wrapper_paths(resolved)
         return TenzirRuntime(
             target="docker",
             source=str(tenzir_path),
             tenzir_path=tenzir_path,
             tenzir_node_path=tenzir_node_path,
+            tenzir_up_path=tenzir_up_path,
         )
     node = resolved.with_name("tenzir-node")
     node_path = node if node.exists() else None
@@ -110,6 +153,25 @@ def runtime_from_path(path: Path) -> TenzirRuntime:
         tenzir_path=resolved,
         tenzir_node_path=node_path,
     )
+
+
+def _deployment_alias(tenzir_path: Path) -> Path:
+    """Return a `tenzir-up` that runs the deployment of a local build.
+
+    A build installs no such executable: its `tenzir` runs the deployment when
+    started under that name.
+    """
+    digest = hashlib.sha256(str(tenzir_path).encode("utf-8")).hexdigest()[:8]
+    alias = BenchPaths.create().state_dir / "static" / digest / DEPLOYMENT_EXECUTABLE
+    if alias.is_symlink() and alias.readlink() == tenzir_path:
+        return alias
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    # Replace atomically, as a concurrent run may start the alias meanwhile.
+    staged = alias.with_name(f"{alias.name}.{os.getpid()}")
+    staged.unlink(missing_ok=True)
+    staged.symlink_to(tenzir_path)
+    _ = staged.replace(alias)
+    return alias
 
 
 def _resolve_local_tenzir_path(value: str) -> Path:
@@ -126,33 +188,39 @@ def _docker_runtime(paths: BenchPaths, image: str) -> TenzirRuntime:
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", image)
     tenzir_wrapper = wrapper_dir / f"{safe}-{digest}.sh"
     tenzir_node_wrapper = wrapper_dir / f"{safe}-{digest}-node.sh"
-    _ = tenzir_wrapper.write_text(
-        _docker_wrapper_script(image, paths, executable="tenzir"), encoding="utf-8"
-    )
-    _ = tenzir_node_wrapper.write_text(
-        _docker_wrapper_script(image, paths, executable="tenzir-node"),
-        encoding="utf-8",
-    )
-    tenzir_wrapper.chmod(0o755)
-    tenzir_node_wrapper.chmod(0o755)
+    tenzir_up_wrapper = wrapper_dir / f"{safe}-{digest}-up.sh"
+    for wrapper, executable in (
+        (tenzir_wrapper, "tenzir"),
+        (tenzir_node_wrapper, "tenzir-node"),
+        (tenzir_up_wrapper, DEPLOYMENT_EXECUTABLE),
+    ):
+        _ = wrapper.write_text(
+            _docker_wrapper_script(image, paths, executable=executable), encoding="utf-8"
+        )
+        wrapper.chmod(0o755)
     return TenzirRuntime(
         target="docker",
         source=f"docker://{image}",
         tenzir_path=tenzir_wrapper,
         tenzir_node_path=tenzir_node_wrapper,
+        tenzir_up_path=tenzir_up_wrapper,
     )
 
 
-def _docker_wrapper_paths(path: Path) -> tuple[Path, Path | None]:
-    if path.stem.endswith("-node"):
-        tenzir_node_path = path
-        tenzir_path = path.with_name(f"{path.stem[:-5]}{path.suffix}")
-    else:
-        tenzir_path = path
-        tenzir_node_path = path.with_name(f"{path.stem}-node{path.suffix}")
-    if not tenzir_node_path.exists():
-        tenzir_node_path = None
-    return tenzir_path, tenzir_node_path
+def _docker_wrapper_paths(path: Path) -> tuple[Path, Path | None, Path | None]:
+    stem = path.stem
+    for suffix in ("-node", "-up"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    tenzir_path = path.with_name(f"{stem}{path.suffix}")
+    tenzir_node_path = path.with_name(f"{stem}-node{path.suffix}")
+    tenzir_up_path = path.with_name(f"{stem}-up{path.suffix}")
+    return (
+        tenzir_path,
+        tenzir_node_path if tenzir_node_path.exists() else None,
+        tenzir_up_path if tenzir_up_path.exists() else None,
+    )
 
 
 def _runtime_env(target: TargetKind, env: Mapping[str, str] | None) -> dict[str, str] | None:
@@ -211,6 +279,42 @@ def _docker_wrapper_script(image: str, paths: BenchPaths, *, executable: str = "
             PY
             )"
             exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${volumes[@]}" "${forward_envs[@]}" "${workdir_args[@]}" --entrypoint python3 "$IMAGE" -c "$PYTHON_WRAPPER" "$ENTRYPOINT_JSON" "$CMD_JSON" -- "$@"
+            """
+        )
+    elif executable == DEPLOYMENT_EXECUTABLE:
+        # An image installs no `tenzir-up`: its `tenzir` runs the deployment
+        # when started under that name. The container's resource usage is not
+        # visible from outside, so the wrapper reports it.
+        run_body = dedent(
+            f"""\
+            PYTHON_WRAPPER="$(cat <<'PY'
+            import os
+            import shutil
+            import signal
+            import subprocess
+            import sys
+            import tempfile
+
+            tenzir = shutil.which("tenzir")
+            if tenzir is None:
+                print("docker image is missing a tenzir executable", file=sys.stderr)
+                raise SystemExit(127)
+            alias = os.path.join(tempfile.mkdtemp(), "{DEPLOYMENT_EXECUTABLE}")
+            os.symlink(tenzir, alias)
+            proc = subprocess.Popen([alias, *sys.argv[1:]])
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                signal.signal(signum, lambda received, _frame: proc.send_signal(received))
+            _pid, status, rusage = os.wait4(proc.pid, 0)
+            print(
+                f"{DEPLOYMENT_RUSAGE_MARKER}"
+                f"{{rusage.ru_utime}} {{rusage.ru_stime}} {{rusage.ru_maxrss}}",
+                file=sys.stderr,
+            )
+            exit_code = os.waitstatus_to_exitcode(status)
+            raise SystemExit(exit_code if exit_code >= 0 else 128 - exit_code)
+            PY
+            )"
+            exec docker run --rm --network=host --user "$(id -u)":"$(id -g)" "${{volumes[@]}}" "${{forward_envs[@]}}" "${{workdir_args[@]}}" --entrypoint python3 "$IMAGE" -c "$PYTHON_WRAPPER" "$@"
             """
         )
     else:
